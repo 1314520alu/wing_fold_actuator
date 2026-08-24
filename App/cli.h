@@ -5,9 +5,12 @@
 #include "main.h"
 #include "nvm.h"
 
+#define CLI_MANUAL_TIMEOUT_MS  5000U
+
 void cli_init(UART_HandleTypeDef *huart);
 void cli_poll(void);
 
 /* Task 7 can consume the calibrated RAM copy without rereading Flash. */
 const nvm_blob_t *cli_get_params(void);
 bool cli_is_calibrated(void);
+bool cli_manual_override_active(uint32_t now_ms);

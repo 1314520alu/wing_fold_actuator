@@ -44,9 +44,33 @@ static void test_uncalibrated_fast_flash_then_calibrated_heartbeat(void)
     assert(toggle_count == 2U);
 }
 
+static void test_hold_and_fault_patterns_are_distinct(void)
+{
+    now_ms = 0U;
+    toggle_count = 0U;
+    led_status_init(true);
+
+    led_status_hold();
+    now_ms = 999U;
+    led_status_poll();
+    assert(toggle_count == 0U);
+    now_ms = 1000U;
+    led_status_poll();
+    assert(toggle_count == 1U);
+
+    led_status_fault();
+    now_ms = 1124U;
+    led_status_poll();
+    assert(toggle_count == 1U);
+    now_ms = 1125U;
+    led_status_poll();
+    assert(toggle_count == 2U);
+}
+
 int main(void)
 {
     test_uncalibrated_fast_flash_then_calibrated_heartbeat();
+    test_hold_and_fault_patterns_are_distinct();
     printf("OK\n");
     return 0;
 }

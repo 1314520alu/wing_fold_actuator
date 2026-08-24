@@ -8,6 +8,10 @@ typedef struct {
 
 typedef struct {
     uint32_t instance;
+} TIM_HandleTypeDef;
+
+typedef struct {
+    uint32_t instance;
 } GPIO_TypeDef;
 
 typedef struct {

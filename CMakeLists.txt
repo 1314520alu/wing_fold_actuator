@@ -24,7 +24,9 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    App/app.c
     App/cli.c
+    App/control.c
     App/encoder.c
     App/led_status.c
     App/nvm.c

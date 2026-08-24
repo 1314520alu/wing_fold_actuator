@@ -20,6 +20,8 @@ static bool s_have_a;
 static bool s_have_b;
 static bool s_calibrated;
 static int16_t s_motor_speed;
+static bool s_manual_override;
+static uint32_t s_manual_started_ms;
 
 static void write_text(const char *text)
 {
@@ -129,6 +131,8 @@ static void set_motor(const char *argument)
         return;
     }
     s_motor_speed = (int16_t)value;
+    s_manual_override = true;
+    s_manual_started_ms = HAL_GetTick();
     write_text("OK motor\r\n");
 }
 
@@ -153,6 +157,7 @@ static void execute_line(char *line)
     } else if (strcmp(line, "hold") == 0) {
         if (servo_bus_motor_stop() == 0) {
             s_motor_speed = 0;
+            s_manual_override = false;
             write_text("OK hold\r\n");
         } else {
             write_text("ERR servo bus\r\n");
@@ -169,6 +174,8 @@ void cli_init(UART_HandleTypeDef *huart)
     s_huart = huart;
     s_line_length = 0U;
     s_motor_speed = 0;
+    s_manual_override = false;
+    s_manual_started_ms = 0U;
     s_calibrated = nvm_load(&s_params);
     if (!s_calibrated) {
         nvm_defaults(&s_params);
@@ -215,4 +222,13 @@ const nvm_blob_t *cli_get_params(void)
 bool cli_is_calibrated(void)
 {
     return s_calibrated;
+}
+
+bool cli_manual_override_active(uint32_t now_ms)
+{
+    if (s_manual_override
+        && ((uint32_t)(now_ms - s_manual_started_ms) >= CLI_MANUAL_TIMEOUT_MS)) {
+        s_manual_override = false;
+    }
+    return s_manual_override;
 }

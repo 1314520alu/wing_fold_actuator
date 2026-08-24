@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 
+#include "app.h"
 #include "cli.h"
 #include "encoder.h"
 #include "led_status.h"
@@ -61,13 +62,10 @@ int main(void)
   pwm_in_init(&htim2);
 #endif
 #if !SERVO_BUS_SMOKE_TEST && !ENCODER_SMOKE_TEST && !PWM_IN_SMOKE_TEST
-  /* Normal Task 6 bench mode. Task 7 will add the closed-loop controller. */
-  servo_bus_init(&huart1, 1U);
-  encoder_init(&huart2);
-  cli_init(&huart3);
-  led_status_init(cli_is_calibrated());
+  app_init();
 #endif
 
+  uint32_t last_app_tick_ms = HAL_GetTick();
   while (1)
   {
 #if PWM_IN_SMOKE_TEST
@@ -110,9 +108,11 @@ int main(void)
     servo_bus_motor_stop();
     HAL_Delay(1000);
 #else
-    cli_poll();
-    led_status_set_calibrated(cli_is_calibrated());
-    led_status_poll();
+    const uint32_t now_ms = HAL_GetTick();
+    if ((uint32_t)(now_ms - last_app_tick_ms) >= 10U) {
+      last_app_tick_ms = now_ms;
+      app_tick(now_ms);
+    }
 #endif
   }
 }

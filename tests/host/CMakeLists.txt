@@ -54,3 +54,14 @@ target_include_directories(test_led_status PRIVATE
     fakes
     ../../App
 )
+
+add_executable(test_app
+    test_app.c
+    ../../App/app.c
+    ../../App/control.c
+)
+
+target_include_directories(test_app PRIVATE
+    fakes
+    ../../App
+)
