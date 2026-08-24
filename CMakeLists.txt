@@ -20,6 +20,11 @@ add_subdirectory(cmake/stm32cubemx)
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Inc
+    App
+)
+
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    App/servo_bus.c
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME}

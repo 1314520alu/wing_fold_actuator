@@ -1,5 +1,12 @@
 #include "main.h"
 
+#include "servo_bus.h"
+
+/* Set to 1 for HTD-85H bench smoke: +200 / 0 / -200 for 1 s each. */
+#ifndef SERVO_BUS_SMOKE_TEST
+#define SERVO_BUS_SMOKE_TEST 0
+#endif
+
 TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
@@ -23,10 +30,27 @@ int main(void)
   MX_USART2_UART_Init();
   MX_USART3_UART_Init();
 
+#if SERVO_BUS_SMOKE_TEST
+  /* Wiring: USART1 PA9/PA10 -> half-duplex TTL buffer logic side; servo VBAT
+   * separate; common GND. Default servo ID 1; change if needed. */
+  servo_bus_init(&huart1, 1U);
+#endif
+
   while (1)
   {
+#if SERVO_BUS_SMOKE_TEST
+    servo_bus_set_motor_speed(200);
+    HAL_Delay(1000);
+    servo_bus_motor_stop();
+    HAL_Delay(1000);
+    servo_bus_set_motor_speed(-200);
+    HAL_Delay(1000);
+    servo_bus_motor_stop();
+    HAL_Delay(1000);
+#else
     HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
     HAL_Delay(500);
+#endif
   }
 }
 
