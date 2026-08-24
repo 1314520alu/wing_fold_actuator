@@ -81,6 +81,31 @@ openocd -f interface/stlink.cfg -f target/stm32f1x.cfg `
 
 硬件烧录不是 Task 1 的验收门槛。
 
+## 实机参数
+
+> **状态：台架/实机验收待完成。** 下列标定值须在实物台架完成后填写；勿使用占位值上机。
+
+| 参数 | 首版默认 | 台架实测 | 备注 |
+| --- | --- | --- | --- |
+| `count_a`（PWM 1000 µs 端点） | — | **TBD** | `cal a` + `cal save` 后填入 |
+| `count_b`（PWM 2000 µs 端点） | — | **TBD** | `cal b` + `cal save` 后填入 |
+| 死区（count） | 20 | **TBD** | 到位停稳后微调 |
+| `kp`（×1000 比例尺） | 500 | **TBD** | 过冲/振荡时降低 |
+| `vmax` | 800 | **TBD** | 装丝杆首测建议先降至 400 |
+| PWM 超时（ms） | 150 | 150 | 与设计一致 |
+
+台架完成后执行 `cal show` 或 `status`，将 Flash 中的 A/B 与调参结果更新上表。
+
+### 待完成台架步骤
+
+- [ ] **Step 1 — 无负载标定**：CLI 点动、`cal a` / `cal b` / `cal save`，确认编码器读数连续。
+- [ ] **Step 2 — PWM 扫行程**：1000–2000 µs 缓慢扫描；拔 PWM 验证 150 ms 后 HOLD。
+- [ ] **Step 3 — 装丝杆慢速全行程**：`vmax` 减半（建议 400）；确认无机械干涉；两端留软件死区，勿硬顶死。
+- [ ] **Step 4 — 接飞控地面折叠**：舵机通道脉宽与 MP/参数一致；丢信号保持。
+- [ ] **Step 5 — 回写本表**：将最终 `count_a/b`、Kp、死区、`vmax` 写入上表并提交 README。
+
+详细验收项见 [`docs/BENCH_CHECKLIST.md`](docs/BENCH_CHECKLIST.md)。
+
 ## 台架验收
 
 1. 机械脱载或可靠限位，确认舵机独立供电且 MCU、舵机、飞控共地。
