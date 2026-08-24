@@ -7,7 +7,8 @@ _Min_Stack_Size = 0x400;
 MEMORY
 {
   RAM   (xrw) : ORIGIN = 0x20000000, LENGTH = 20K
-  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 64K
+  /* Keep the final 1 KiB page (0x0800FC00) for App/nvm.c. */
+  FLASH (rx)  : ORIGIN = 0x08000000, LENGTH = 63K
 }
 
 SECTIONS

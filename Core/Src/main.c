@@ -2,7 +2,9 @@
 
 #include <stdio.h>
 
+#include "cli.h"
 #include "encoder.h"
+#include "led_status.h"
 #include "pwm_in.h"
 #include "servo_bus.h"
 
@@ -58,6 +60,13 @@ int main(void)
   /* TIM2 CH1 on PA0: connect flight-controller or servo tester PWM. */
   pwm_in_init(&htim2);
 #endif
+#if !SERVO_BUS_SMOKE_TEST && !ENCODER_SMOKE_TEST && !PWM_IN_SMOKE_TEST
+  /* Normal Task 6 bench mode. Task 7 will add the closed-loop controller. */
+  servo_bus_init(&huart1, 1U);
+  encoder_init(&huart2);
+  cli_init(&huart3);
+  led_status_init(cli_is_calibrated());
+#endif
 
   while (1)
   {
@@ -101,8 +110,9 @@ int main(void)
     servo_bus_motor_stop();
     HAL_Delay(1000);
 #else
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    HAL_Delay(500);
+    cli_poll();
+    led_status_set_calibrated(cli_is_calibrated());
+    led_status_poll();
 #endif
   }
 }

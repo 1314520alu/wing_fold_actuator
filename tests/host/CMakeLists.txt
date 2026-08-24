@@ -22,3 +22,35 @@ target_include_directories(test_encoder PRIVATE
     fakes
     ../../App
 )
+
+add_executable(test_nvm
+    test_nvm.c
+    ../../App/nvm.c
+)
+
+target_compile_definitions(test_nvm PRIVATE NVM_HOST_TEST=1)
+
+target_include_directories(test_nvm PRIVATE
+    fakes
+    ../../App
+)
+
+add_executable(test_cli
+    test_cli.c
+    ../../App/cli.c
+)
+
+target_include_directories(test_cli PRIVATE
+    fakes
+    ../../App
+)
+
+add_executable(test_led_status
+    test_led_status.c
+    ../../App/led_status.c
+)
+
+target_include_directories(test_led_status PRIVATE
+    fakes
+    ../../App
+)
