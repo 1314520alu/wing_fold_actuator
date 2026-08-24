@@ -3,6 +3,7 @@
 #include <stdio.h>
 
 #include "encoder.h"
+#include "pwm_in.h"
 #include "servo_bus.h"
 
 /* Set to 1 for HTD-85H bench smoke: +200 / 0 / -200 for 1 s each. */
@@ -13,6 +14,11 @@
 /* Set to 1 to print BRT38 absolute counts on USART3 every 200 ms. */
 #ifndef ENCODER_SMOKE_TEST
 #define ENCODER_SMOKE_TEST 0
+#endif
+
+/* Set to 1 to print captured servo PWM pulse width on USART3 every 200 ms. */
+#ifndef PWM_IN_SMOKE_TEST
+#define PWM_IN_SMOKE_TEST 0
 #endif
 
 TIM_HandleTypeDef htim2;
@@ -48,10 +54,29 @@ int main(void)
    * direction control. USART3 PB10 is the 115200 8N1 smoke-test output. */
   encoder_init(&huart2);
 #endif
+#if PWM_IN_SMOKE_TEST
+  /* TIM2 CH1 on PA0: connect flight-controller or servo tester PWM. */
+  pwm_in_init(&htim2);
+#endif
 
   while (1)
   {
-#if ENCODER_SMOKE_TEST
+#if PWM_IN_SMOKE_TEST
+    uint16_t pulse_us;
+    char line[32];
+    int length;
+
+    if (pwm_in_get_pulse_us(&pulse_us)) {
+      length = snprintf(line, sizeof(line), "PWM %u us\r\n",
+                        (unsigned int)pulse_us);
+    } else {
+      length = snprintf(line, sizeof(line), "PWM --\r\n");
+    }
+    if ((length > 0) && ((size_t)length < sizeof(line))) {
+      HAL_UART_Transmit(&huart3, (uint8_t *)line, (uint16_t)length, 100U);
+    }
+    HAL_Delay(200);
+#elif ENCODER_SMOKE_TEST
     int32_t count;
     char line[48];
     int length;
