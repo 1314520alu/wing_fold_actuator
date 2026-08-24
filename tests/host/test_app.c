@@ -15,6 +15,7 @@ TIM_HandleTypeDef htim2;
 
 static nvm_blob_t params;
 static bool manual_override;
+static bool calibrated;
 static bool encoder_ok;
 static uint8_t encoder_failures;
 static int32_t encoder_count;
@@ -22,6 +23,7 @@ static bool pwm_valid;
 static uint16_t pwm_us;
 static uint32_t pwm_edge_ms;
 static int16_t motor_speed;
+static int speed_write_result;
 static unsigned int speed_writes;
 static unsigned int stop_writes;
 static unsigned int fault_led_calls;
@@ -38,7 +40,7 @@ int servo_bus_set_motor_speed(int16_t speed)
 {
     motor_speed = speed;
     ++speed_writes;
-    return 0;
+    return speed_write_result;
 }
 
 int servo_bus_motor_stop(void)
@@ -100,7 +102,7 @@ const nvm_blob_t *cli_get_params(void)
 
 bool cli_is_calibrated(void)
 {
-    return true;
+    return calibrated;
 }
 
 bool cli_manual_override_active(uint32_t now_ms)
@@ -111,12 +113,12 @@ bool cli_manual_override_active(uint32_t now_ms)
 
 void led_status_init(bool calibrated)
 {
-    assert(calibrated);
+    (void)calibrated;
 }
 
 void led_status_set_calibrated(bool calibrated)
 {
-    assert(calibrated);
+    (void)calibrated;
 }
 
 void led_status_run(void)
@@ -149,6 +151,7 @@ static void reset_fixture(void)
     params.kp = 1000;
     params.vmax = 500;
     manual_override = false;
+    calibrated = true;
     encoder_ok = true;
     encoder_failures = 0U;
     encoder_count = 0;
@@ -156,6 +159,7 @@ static void reset_fixture(void)
     pwm_us = 2000U;
     pwm_edge_ms = 10U;
     motor_speed = 0;
+    speed_write_result = 0;
     speed_writes = 0U;
     stop_writes = 0U;
     fault_led_calls = 0U;
@@ -183,6 +187,29 @@ static void test_manual_override_pauses_closed_loop_writes(void)
     assert(speed_writes == 0U);
 }
 
+static void test_uncalibrated_forces_auto_hold(void)
+{
+    reset_fixture();
+    calibrated = false;
+    app_tick(10U);
+    assert(speed_writes == 1U);
+    assert(motor_speed == 0);
+    assert(hold_led_calls == 1U);
+    assert(run_led_calls == 0U);
+}
+
+static void test_uncalibrated_preserves_manual_override(void)
+{
+    reset_fixture();
+    calibrated = false;
+    manual_override = true;
+    motor_speed = 200;
+    app_tick(10U);
+    assert(speed_writes == 0U);
+    assert(motor_speed == 200);
+    assert(hold_led_calls == 1U);
+}
+
 static void test_encoder_failure_streak_forces_fault_stop(void)
 {
     reset_fixture();
@@ -205,12 +232,35 @@ static void test_stale_pwm_edge_enters_hold(void)
     assert(hold_led_calls == 1U);
 }
 
+static void test_consecutive_servo_tx_failures_latch_fault_and_stop_writes(void)
+{
+    reset_fixture();
+    speed_write_result = -1;
+
+    app_tick(10U);
+    app_tick(11U);
+    assert(fault_led_calls == 0U);
+    app_tick(12U);
+    assert(speed_writes == 3U);
+    assert(stop_writes == 1U);
+    assert(motor_speed == 0);
+    assert(fault_led_calls == 1U);
+
+    app_tick(13U);
+    assert(speed_writes == 3U);
+    assert(stop_writes == 1U);
+    assert(fault_led_calls == 2U);
+}
+
 int main(void)
 {
     test_auto_writes_closed_loop_speed();
     test_manual_override_pauses_closed_loop_writes();
+    test_uncalibrated_forces_auto_hold();
+    test_uncalibrated_preserves_manual_override();
     test_encoder_failure_streak_forces_fault_stop();
     test_stale_pwm_edge_enters_hold();
+    test_consecutive_servo_tx_failures_latch_fault_and_stop_writes();
     printf("OK\n");
     return 0;
 }

@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "app.h"
 #include "encoder.h"
 #include "servo_bus.h"
 
@@ -82,6 +83,7 @@ static void save_calibration(void)
     }
 
     s_calibrated = true;
+    app_reload_params();
     write_text("OK saved\r\n");
 }
 

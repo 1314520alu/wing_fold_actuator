@@ -6,3 +6,4 @@
 
 void app_init(void);
 void app_tick(uint32_t now_ms);
+void app_reload_params(void);

@@ -65,3 +65,13 @@ target_include_directories(test_app PRIVATE
     fakes
     ../../App
 )
+
+add_executable(test_pwm_in
+    test_pwm_in.c
+    ../../App/pwm_in.c
+)
+
+target_include_directories(test_pwm_in PRIVATE
+    fakes
+    ../../App
+)

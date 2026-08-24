@@ -11,6 +11,8 @@
 #include "pwm_in.h"
 #include "servo_bus.h"
 
+#define APP_SERVO_TX_FAILURE_LIMIT  3U
+
 extern TIM_HandleTypeDef htim2;
 extern UART_HandleTypeDef huart1;
 extern UART_HandleTypeDef huart2;
@@ -18,6 +20,8 @@ extern UART_HandleTypeDef huart3;
 
 static control_state_t s_control;
 static int32_t s_last_encoder_count;
+static uint8_t s_servo_tx_failures;
+static bool s_servo_fault;
 
 static control_params_t control_params_from_nvm(const nvm_blob_t *stored)
 {
@@ -34,6 +38,52 @@ static control_params_t control_params_from_nvm(const nvm_blob_t *stored)
     return params;
 }
 
+static void servo_tx_result(int result, bool motion_command)
+{
+    if (result == 0) {
+        s_servo_tx_failures = 0U;
+        return;
+    }
+
+    if (s_servo_tx_failures < UINT8_MAX) {
+        ++s_servo_tx_failures;
+    }
+    if (s_servo_tx_failures >= APP_SERVO_TX_FAILURE_LIMIT) {
+        s_servo_fault = true;
+        s_control.hold = true;
+        s_control.speed_cmd = 0;
+        if (motion_command) {
+            (void)servo_bus_motor_stop();
+        }
+    }
+}
+
+static void servo_stop_tracked(void)
+{
+    if (!s_servo_fault) {
+        servo_tx_result(servo_bus_motor_stop(), false);
+    }
+}
+
+static void servo_speed_tracked(int16_t speed)
+{
+    if (!s_servo_fault) {
+        servo_tx_result(servo_bus_set_motor_speed(speed), speed != 0);
+    }
+}
+
+void app_reload_params(void)
+{
+    control_params_t params = control_params_from_nvm(cli_get_params());
+
+    control_init(&s_control, &params);
+    s_control.current = s_last_encoder_count;
+    s_control.target = s_last_encoder_count;
+    s_control.hold = true;
+    s_control.speed_cmd = 0;
+    servo_stop_tracked();
+}
+
 void app_init(void)
 {
     control_params_t params;
@@ -48,7 +98,9 @@ void app_init(void)
     control_init(&s_control, &params);
     s_control.hold = true;
     s_last_encoder_count = 0;
-    (void)servo_bus_motor_stop();
+    s_servo_tx_failures = 0U;
+    s_servo_fault = false;
+    servo_stop_tracked();
 }
 
 void app_tick(uint32_t now_ms)
@@ -58,10 +110,16 @@ void app_tick(uint32_t now_ms)
 
     cli_poll();
 
+    if (s_servo_fault) {
+        led_status_fault();
+        led_status_poll();
+        return;
+    }
+
     if (encoder_read_count(&encoder_count)) {
         s_last_encoder_count = encoder_count;
     } else if (encoder_fail_streak() >= 5U) {
-        (void)servo_bus_motor_stop();
+        servo_stop_tracked();
         led_status_fault();
         led_status_poll();
         return;
@@ -72,8 +130,19 @@ void app_tick(uint32_t now_ms)
     }
     control_update(&s_control, s_last_encoder_count, now_ms);
 
-    if (!cli_manual_override_active(now_ms)) {
-        (void)servo_bus_set_motor_speed(s_control.speed_cmd);
+    const bool manual_override = cli_manual_override_active(now_ms);
+    if (!cli_is_calibrated()) {
+        s_control.hold = true;
+        s_control.speed_cmd = 0;
+    }
+
+    if (!manual_override) {
+        servo_speed_tracked(s_control.speed_cmd);
+    }
+    if (s_servo_fault) {
+        led_status_fault();
+        led_status_poll();
+        return;
     }
 
     led_status_set_calibrated(cli_is_calibrated());

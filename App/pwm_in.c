@@ -75,11 +75,11 @@ static void pwm_in_on_capture(TIM_HandleTypeDef *htim)
     s_awaiting_falling = false;
     __HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_1,
                                   TIM_INPUTCHANNELPOLARITY_RISING);
-    s_last_edge_ms = HAL_GetTick();
 
     if ((width >= PWM_IN_MIN_US) && (width <= PWM_IN_MAX_US)) {
         s_last_pulse_us = (uint16_t)width;
         s_pulse_valid = true;
+        s_last_edge_ms = HAL_GetTick();
     }
 }
 

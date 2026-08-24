@@ -8,6 +8,7 @@ typedef struct {
 
 typedef struct {
     uint32_t instance;
+    uint32_t Channel;
 } TIM_HandleTypeDef;
 
 typedef struct {
@@ -29,6 +30,17 @@ typedef enum {
 #define FLASH_TYPEERASE_PAGES       0x02U
 #define FLASH_TYPEPROGRAM_HALFWORD  0x01U
 #define GPIO_PIN_13                 (1U << 13)
+#define TIM2_IRQn                   28
+#define TIM_CHANNEL_1               1U
+#define HAL_TIM_ACTIVE_CHANNEL_1    1U
+#define TIM_INPUTCHANNELPOLARITY_RISING   0U
+#define TIM_INPUTCHANNELPOLARITY_FALLING  1U
+#define __HAL_TIM_SET_CAPTUREPOLARITY(htim, channel, polarity) \
+    do {                                                        \
+        (void)(htim);                                           \
+        (void)(channel);                                        \
+        (void)(polarity);                                       \
+    } while (0)
 
 extern GPIO_TypeDef fake_led_port;
 #define LED_GPIO_Port               (&fake_led_port)
@@ -51,3 +63,8 @@ HAL_StatusTypeDef HAL_FLASH_Program(uint32_t type,
                                     uint64_t data);
 uint32_t HAL_GetTick(void);
 void HAL_GPIO_TogglePin(GPIO_TypeDef *port, uint16_t pin);
+void HAL_NVIC_SetPriority(int irqn, uint32_t priority, uint32_t subpriority);
+void HAL_NVIC_EnableIRQ(int irqn);
+HAL_StatusTypeDef HAL_TIM_IC_Start_IT(TIM_HandleTypeDef *htim,
+                                      uint32_t channel);
+uint32_t HAL_TIM_ReadCapturedValue(TIM_HandleTypeDef *htim, uint32_t channel);

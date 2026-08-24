@@ -20,7 +20,13 @@ static bool encoder_valid;
 static int32_t encoder_count;
 static int16_t motor_speed;
 static unsigned int stop_calls;
+static unsigned int reload_calls;
 static uint32_t now_ms;
+
+void app_reload_params(void)
+{
+    ++reload_calls;
+}
 
 uint32_t HAL_GetTick(void)
 {
@@ -121,6 +127,7 @@ static void reset_fixture(void)
     encoder_count = 3456;
     motor_speed = 0;
     stop_calls = 0U;
+    reload_calls = 0U;
     now_ms = 100U;
     cli_init(&cli_uart);
     tx_length = 0U;
@@ -148,6 +155,7 @@ static void test_calibration_captures_both_endpoints_and_saves(void)
     assert(saved_blob.count_a == 3456);
     assert(saved_blob.count_b == 8765);
     assert(cli_is_calibrated());
+    assert(reload_calls == 1U);
     assert(strstr(tx_text, "saved") != NULL);
 }
 
