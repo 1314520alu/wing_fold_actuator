@@ -24,6 +24,7 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
 )
 
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+    App/encoder.c
     App/servo_bus.c
 )
 

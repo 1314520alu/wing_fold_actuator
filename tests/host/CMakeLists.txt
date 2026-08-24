@@ -12,3 +12,13 @@ add_executable(test_control
 target_include_directories(test_control PRIVATE
     ../../App
 )
+
+add_executable(test_encoder
+    test_encoder.c
+    ../../App/encoder.c
+)
+
+target_include_directories(test_encoder PRIVATE
+    fakes
+    ../../App
+)

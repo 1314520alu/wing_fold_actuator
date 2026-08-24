@@ -1,10 +1,18 @@
 #include "main.h"
 
+#include <stdio.h>
+
+#include "encoder.h"
 #include "servo_bus.h"
 
 /* Set to 1 for HTD-85H bench smoke: +200 / 0 / -200 for 1 s each. */
 #ifndef SERVO_BUS_SMOKE_TEST
 #define SERVO_BUS_SMOKE_TEST 0
+#endif
+
+/* Set to 1 to print BRT38 absolute counts on USART3 every 200 ms. */
+#ifndef ENCODER_SMOKE_TEST
+#define ENCODER_SMOKE_TEST 0
 #endif
 
 TIM_HandleTypeDef htim2;
@@ -35,10 +43,30 @@ int main(void)
    * separate; common GND. Default servo ID 1; change if needed. */
   servo_bus_init(&huart1, 1U);
 #endif
+#if ENCODER_SMOKE_TEST
+  /* USART2 PA2/PA3 requires an external RS485 transceiver with automatic
+   * direction control. USART3 PB10 is the 115200 8N1 smoke-test output. */
+  encoder_init(&huart2);
+#endif
 
   while (1)
   {
-#if SERVO_BUS_SMOKE_TEST
+#if ENCODER_SMOKE_TEST
+    int32_t count;
+    char line[48];
+    int length;
+
+    if (encoder_read_count(&count)) {
+      length = snprintf(line, sizeof(line), "ENC %ld\r\n", (long)count);
+    } else {
+      length = snprintf(line, sizeof(line), "ENC ERR %u\r\n",
+                        (unsigned int)encoder_fail_streak());
+    }
+    if ((length > 0) && ((size_t)length < sizeof(line))) {
+      HAL_UART_Transmit(&huart3, (uint8_t *)line, (uint16_t)length, 100U);
+    }
+    HAL_Delay(200);
+#elif SERVO_BUS_SMOKE_TEST
     servo_bus_set_motor_speed(200);
     HAL_Delay(1000);
     servo_bus_motor_stop();
