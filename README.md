@@ -1,122 +1,300 @@
-# Wing Fold Actuator Firmware
+# 折叠翼执行器固件
 
-STM32F103C8T6（Blue Pill）机翼折叠丝杆执行器固件。主循环每 10 ms
-执行一次 PWM 目标映射、绝对编码器反馈和舵机速度闭环，并提供串口 CLI
-用于标定、状态检查和手动点动。
+STM32F103C8T6（Blue Pill）机翼折叠丝杆执行器固件。
 
-## 引脚与初始配置
+飞控输出标准舵机 PWM（1000–2000 us）→ MCU 映射为目标位置 → BRT38 绝对值编码器闭环 → HTD-85H **电机模式**驱动丝杆。一套丝杆同步双翼；**不向飞控回传位置**。
 
-| 功能 | 外设 / 引脚 | 初始配置 |
-| --- | --- | --- |
-| 飞控 PWM 输入 | TIM2_CH1 / PA0 | 输入捕获，1 us 计数分辨率 |
-| HTD-85H 舵机总线 | USART1 / PA9 TX、PA10 RX | 115200，8N1；外接半双工缓冲 |
-| BRT38 编码器 | USART2 / PA2 TX、PA3 RX | 9600，8N1；最终协议参数以后续手册核对为准 |
-| 调试 CLI | USART3 / PB10 TX、PB11 RX | 115200，8N1 |
-| 状态 LED | PC13 | 推挽输出；RUN 500 ms、HOLD 1000 ms、FAULT 125 ms 翻转 |
-| 调试接口 | PA13 SWDIO、PA14 SWCLK | Serial Wire |
+主循环约 **10 ms**。配套 PC 工具：[`tools/telem_viewer`](tools/telem_viewer/README.md)（中文界面，标定 / 手动点动 / 遥测曲线）。
 
-时钟使用 Blue Pill 常见的 8 MHz HSE，经 PLL 倍频至 72 MHz。
+---
 
-## 控制与安全行为
-
-- PWM 1000–2000 us 线性映射到标定端点 `count_a`–`count_b`。
-- 默认参数：死区 20 count、`kp=500`（比例尺 1000）、`vmax=800`、
-  PWM 超时 150 ms。
-- 上电先发送停转命令；无有效 PWM 或 PWM 超时后进入 HOLD，速度命令为 0。
-- 编码器连续读取失败达到 5 次后立即停转并进入 FAULT；读取恢复后退出故障。
-- CLI `motor <spd>`（范围 -500–500）进入 MANUAL，闭环暂停写速度；
-  `hold` 或 5 s 超时后返回 AUTO。
-- Flash 链接区长度为 63 KiB，末尾 1 KiB 页 `0x0800FC00` 专用于标定 NVM。
-
-## CLI
-
-USART3（115200 8N1）支持：
+## 1. 系统概览
 
 ```text
-cal a | cal b | cal save | cal show
-status
-motor <spd>
-hold
-help
+飞控 PWM --PA0---> 脉宽捕获 ---> 目标 tgt
+BRT38 ----USART2---> 位置 count ---> 闭环 control ---> 速度指令
+HTD-85H --USART1---> 电机模式执行
+调试 PC --USART3---> CLI / 遥测 CSV / 查看器
 ```
 
-先用 `motor` 点动到两个机械端点，依次执行 `cal a`、`cal b` 和
-`cal save`。机械端点附近应低速操作，并保留断电或急停手段。
+| 角色 | 接口 | 说明 |
+|------|------|------|
+| 飞控 | PA0 PWM | 只输入脉宽，无位置回传 |
+| 编码器 | USART2 | 合成 `count` |
+| 舵机 | USART1 | Lobot 电机模式 ±1000 |
+| 调试 | USART3 | CLI + `telem` 流 |
 
-## 供电与接线
+---
 
-- 舵机功率端使用独立 VBAT，不能由 MCU 3.3 V 引脚供电。
-- MCU 逻辑侧保持 3.3 V；舵机单线总线应通过合适的半双工缓冲器连接。
-- 舵机电源、MCU 和飞控必须共地。
-- 上电前确认外设逻辑电平与接口类型，尤其是编码器是否需要额外收发器。
+## 2. 硬件连接
 
-## 编译
+| 功能 | 引脚 | 说明 |
+|------|------|------|
+| 飞控 PWM | **PA0** | EXTI 测脉宽；下拉；与飞控 **共地** |
+| HTD-85H 总线 | USART1 **PA9** TX / **PA10** RX | 115200 8N1；半双工缓冲接单线 |
+| BRT38 编码器 | USART2 **PA2** TX / **PA3** RX | 上电协商 **115200**（出厂 9600 会改写）；TTL 交叉 |
+| 调试 CLI | USART3 **PB10** TX / **PB11** RX | 115200 8N1；接 CH340（关 DTR/RTS） |
+| 状态 LED | **PC13** | 板载灯（低电平亮） |
+| SWD | PA13 / PA14 | 烧录调试 |
 
-要求 `cmake`、Ninja 和 Arm GNU Toolchain（`arm-none-eabi-*`）已加入 `PATH`：
+**供电**
+
+- 舵机功率：**独立 VBAT（约 9–14.8 V，以手册为准）**，禁止从 MCU 3.3 V 取电  
+- MCU：3.3 V  
+- **舵机电源、MCU、飞控必须共地**
+
+**时钟**：8 MHz HSE → PLL → 72 MHz。
+
+---
+
+## 3. 快速上手
+
+1. 烧录 `build/Debug/wing_fold_actuator.hex`（或同批带时间戳 hex）  
+2. USART3：115200，关闭 DTR/RTS，命令以换行结束  
+3. 上电可见 `NVM calibration loaded` 或 `Using default a=0 b=24000`  
+4. PA0 有合法 PWM 即可跟位；台架点动：`motor 300` / `hold`  
+
+默认行程可用。改端点时再标定并 `cal save`。
+
+若板内已有旧参数，烧录新固件后建议：
+
+```text
+set kp 1500
+set cruise 800
+set save
+cal show
+```
+
+---
+
+## 4. 位置与闭环
+
+### 4.1 编码器
+
+BRT38M：24 圈 x 单圈 1024。
+
+```text
+count = 圈数 x 1024 + 单圈值    # 约 0～24575
+```
+
+### 4.2 PWM → 目标
+
+| 脉宽 | 默认目标 |
+|------|----------|
+| 1000 us | `count_a`（默认 0） |
+| 1500 us | 线性中间 |
+| 2000 us | `count_b`（默认 24000） |
+
+脉宽先夹到 `pwm_min..pwm_max`（默认 1000–2000），再线性映射。  
+**目标始终在 a–b 线段上**；实测 `count` 可在区间外——上电后若位置出界，用查看器**手动模式**点动回区间，或给 PWM 后闭环拉回。
+
+### 4.3 速度曲线（当前默认）
+
+| 阶段 | 条件 | 行为 |
+|------|------|------|
+| 巡航 | `\|err\| >= cruise`（默认 **800**） | 输出 **vmax**（默认 1000） |
+| 刹车 | `dz <= \|err\| < cruise` | `spd ≈ kp*(\|e\|-dz)/1000`，不低于 **MIN_BRAKE=200** |
+| 到位 | `\|err\| < 死区` | `settled`，速度 0 |
+| 滞回 | 已 settled | 误差需超过约 **4x死区** 才再启动 |
+| 反向锁 | 单向超调后 | `\|err\| < 400` 先滑行，不立刻反转 |
+
+设计目标：**离开巡航进入减速后，约 1 s 内进入停稳**（过小 `kp` 会在终点前长时间蠕动）。
+
+### 4.4 安全
+
+| 条件 | 行为 |
+|------|------|
+| 无 PWM / 脉宽超时（400 ms） | **HOLD**：速度 0 |
+| 编码器连续失败 >= 5 | **FAULT**：停转 |
+| 舵机总线连续发送失败 | **FAULT** 闩锁 |
+| 上电 | 先发停转 |
+| 未标定（`cal=no`） | 强制 HOLD（出厂默认端点视为已标定） |
+
+### 4.5 手动覆盖（CLI / 查看器）
+
+| 命令 | 作用 |
+|------|------|
+| `motor <spd>` | 开环覆盖，暂停 PWM 闭环（-1000..1000） |
+| `motor 0` | 保持手动模式、电机停 |
+| `hold` | 解除手动覆盖，恢复 PWM 闭环 |
+
+查看器：**开启手动模式** → `±` 单击切换点动（速度 ±500）→ **退出手动模式**。
+
+---
+
+## 5. 状态 LED（PC13）
+
+| 模式 | 周期 | 含义 |
+|------|------|------|
+| RUN | ~500 ms | 有效 PWM，闭环中 |
+| HOLD | ~1000 ms | 无 PWM / 超时保持 |
+| FAULT | ~125 ms | 编码器或舵机总线故障 |
+
+---
+
+## 6. CLI（USART3）
+
+```text
+help
+status
+cal a | cal b | cal save | cal show
+set dz|kp|vmax|cruise <n> | set save
+motor <spd>     # -1000..1000；带载建议 >=200
+hold
+telem on | telem off | telem
+```
+
+### 6.1 `status` 示例
+
+```text
+count=8164 motor=0 cal=yes enc_fail=0 pwm=1500 raw=1500 irq=1234 age=20ms hold=0 tgt=12000 spd=500/500 fault=0
+```
+
+| 字段 | 含义 |
+|------|------|
+| `count` | 编码器位置 |
+| `motor` | CLI 手动速度记忆 |
+| `cal` | 是否按已保存标定运行 |
+| `pwm` / `raw` / `irq` / `age` | 脉宽、原始脉宽、边沿计数、距上次有效边沿 |
+| `hold` | 1=保持 |
+| `tgt` | 目标 count |
+| `spd` | 闭环命令 / 总线实际输出 |
+| `fault` | 1=故障闩锁 |
+
+部分 USB 串口会把命令回显粘在应答前（如 `cal showa=0...`）；查看器已做剥离解析。
+
+### 6.2 标定
+
+```text
+motor ±300   → hold → cal a
+motor ±300   → hold → cal b
+cal save
+cal show
+```
+
+`cal a` / `cal b` 采**当时编码器读数**，不能手填。Flash 页 `0x0800FC00`（1 KiB）。有有效 NVM 用 Flash；否则默认 `a=0` / `b=24000`。
+
+### 6.3 遥测
+
+上电默认 **关**。`telem on` 后每 10 ms 一行：
+
+```text
+T,ms,pwm,count,tgt,err,spd_cmd,spd_out,hold,settled,last_dir,fault
+```
+
+字段说明见 [`docs/PROTOCOL_NOTES.md`](docs/PROTOCOL_NOTES.md)。
+
+---
+
+## 7. 默认参数
+
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `count_a` / `count_b` | 0 / 24000 | PWM 1000 / 2000 us 端点 |
+| 死区 `dz` | 150 | 滞回约 x4；仅死区内 settle |
+| `vmax` | 1000 | 电机模式上限 |
+| `kp` | **1500** | 刹车 P 增益（/1000） |
+| `cruise` | **800** | 之外全速；过大则减速段变长 |
+| 最低制动 | **200**（固件常数） | 死区外 P 更低时抬升，避免爬行 |
+| PWM 超时 | 400 ms | 短丢帧不进 HOLD |
+| PWM 范围 | 1000–2000 us | 只采高电平 |
+
+运行时改参：`set kp 1500` 等，再 `set save` 写 Flash。
+
+---
+
+## 8. 遥测查看器
+
+```powershell
+cd tools/telem_viewer
+python -m pip install -r requirements.txt
+python -m telem_viewer
+```
+
+（须在 `tools/telem_viewer` 目录启动，不要进入内层包目录。）
+
+功能摘要：
+
+- 连接 / 遥测开关 / 录制导出  
+- 实时指标与四宫格曲线  
+- **标定 / 舵机**：采集 A/B、保存 Flash、读取参数  
+- **手动模式**：暂停 PWM，±500 点动回 a–b 区间  
+- 诊断事件（HUNT / STALL 等，仅建议，不自动写参）  
+
+详见 [`tools/telem_viewer/README.md`](tools/telem_viewer/README.md)。
+
+---
+
+## 9. 编译与烧录
+
+依赖：`cmake`、Ninja、`arm-none-eabi-gcc`。
 
 ```powershell
 cmake --preset Debug
 cmake --build --preset Debug
 ```
 
-输出文件：
+产物：
 
-- `build/Debug/wing_fold_actuator.elf`
-- `build/Debug/wing_fold_actuator.hex`
-
-## 烧录
-
-使用 ST-Link 与 SWD 接口连接后，可任选一种方式烧录：
+- `build/Debug/wing_fold_actuator.hex` — 最新  
+- `build/Debug/wing_fold_actuator_YYYYMMDD_HHMMSS.hex` — 时间戳备份  
 
 ```powershell
 STM32_Programmer_CLI -c port=SWD -w build/Debug/wing_fold_actuator.hex -v -rst
 ```
 
-也可使用 OpenOCD：
+OpenOCD：
 
 ```powershell
 openocd -f interface/stlink.cfg -f target/stm32f1x.cfg `
   -c "program build/Debug/wing_fold_actuator.elf verify reset exit"
 ```
 
-硬件烧录不是 Task 1 的验收门槛。
+### USART3 烟测（可选）
 
-## 实机参数
+```powershell
+cmake --preset Usart3Smoke
+cmake --build --preset Usart3Smoke
+```
 
-> **状态：台架/实机验收待完成。** 下列标定值须在实物台架完成后填写；勿使用占位值上机。
+CH340：RX→PB10，TX→PB11，共地；应周期性打印 `USART3 OK ...`。
 
-| 参数 | 首版默认 | 台架实测 | 备注 |
-| --- | --- | --- | --- |
-| `count_a`（PWM 1000 µs 端点） | — | **TBD** | `cal a` + `cal save` 后填入 |
-| `count_b`（PWM 2000 µs 端点） | — | **TBD** | `cal b` + `cal save` 后填入 |
-| 死区（count） | 20 | **TBD** | 到位停稳后微调 |
-| `kp`（×1000 比例尺） | 500 | **TBD** | 过冲/振荡时降低 |
-| `vmax` | 800 | **TBD** | 装丝杆首测建议先降至 400 |
-| PWM 超时（ms） | 150 | 150 | 与设计一致 |
+---
 
-台架完成后执行 `cal show` 或 `status`，将 Flash 中的 A/B 与调参结果更新上表。
+## 10. 台架检查清单
 
-### 待完成台架步骤
+- [ ] `motor 300` / `hold` 正常；`status` 中 `count` 变化、`enc_fail=0`  
+- [ ] PA0 有 PWM：`pwm≈1000..2000`、`hold=0`、`irq` 递增  
+- [ ] 慢扫 1000<->2000：方向正确；减速到停稳约 **<=1 s**，无明显正反抖  
+- [ ] 拔 PWM：约 400 ms 内 HOLD，LED 变慢闪  
+- [ ] 断编码器：FAULT，LED 急闪，电机停  
+- [ ] 飞控通道与脉宽范围与标定一致；共地可靠  
+- [ ] （可选）查看器 `telem on` 录慢扫：无持续 `HUNT` / 到位抖振  
 
-- [ ] **Step 1 — 无负载标定**：CLI 点动、`cal a` / `cal b` / `cal save`，确认编码器读数连续。
-- [ ] **Step 2 — PWM 扫行程**：1000–2000 µs 缓慢扫描；拔 PWM 验证 150 ms 后 HOLD。
-- [ ] **Step 3 — 装丝杆慢速全行程**：`vmax` 减半（建议 400）；确认无机械干涉；两端留软件死区，勿硬顶死。
-- [ ] **Step 4 — 接飞控地面折叠**：舵机通道脉宽与 MP/参数一致；丢信号保持。
-- [ ] **Step 5 — 回写本表**：将最终 `count_a/b`、Kp、死区、`vmax` 写入上表并提交 README。
+更细项：[`docs/BENCH_CHECKLIST.md`](docs/BENCH_CHECKLIST.md)。
 
-详细验收项见 [`docs/BENCH_CHECKLIST.md`](docs/BENCH_CHECKLIST.md)。
+---
 
-## 台架验收
+## 11. 模块结构
 
-1. 机械脱载或可靠限位，确认舵机独立供电且 MCU、舵机、飞控共地。
-2. 完成两端点标定后，从 1000 us 缓慢扫到 2000 us；确认目标连续变化，
-   到达目标死区后电机停稳，且方向与机构一致。
-3. 保持运动命令时拔掉 PWM；150 ms 后速度应变为 0，LED 进入 HOLD
-   （每 1000 ms 翻转）。
-4. 恢复 PWM 后，再拔掉编码器通信线；连续 5 次读取失败后电机应停转，
-   LED 进入 FAULT（每 125 ms 翻转）。
-5. 输入 `motor 100`，确认 AUTO 闭环不覆盖手动速度；输入 `hold` 应立即
-   停转并返回 AUTO。再次点动但不输入命令，5 s 后应自动返回 AUTO。
+```text
+App/
+  app.c          主循环集成
+  control.c      PWM→目标、巡航/刹车、死区滞回、反向锁
+  pwm_in.c       PA0 EXTI + TIM2 测脉宽
+  encoder.c      BRT38 Modbus 位置
+  servo_bus.c    Lobot 电机模式 + 斜坡/保活
+  cli.c / nvm.c  CLI、标定与 Flash
+  led_status.c   PC13 指示
+tools/telem_viewer/   PC 遥测与标定工具
+```
 
-硬件系统验收需在实物台架执行；主机测试仅覆盖状态机和故障路径，不能替代
-机械限位、方向、负载和电气安全验证。
+---
+
+## 12. 相关文档
+
+| 文档 | 内容 |
+|------|------|
+| [`docs/PROTOCOL_NOTES.md`](docs/PROTOCOL_NOTES.md) | 编码器协议、遥测帧格式 |
+| [`docs/BENCH_CHECKLIST.md`](docs/BENCH_CHECKLIST.md) | 详细台架清单 |
+| [`tools/telem_viewer/README.md`](tools/telem_viewer/README.md) | 查看器安装与操作 |

@@ -8,4 +8,4 @@
 #define NVM_FLASH_PAGE_ADDRESS  0x0800FC00U
 
 #define NVM_MAGIC               0x54464F4CU /* "TFOL" */
-#define NVM_VERSION             1U
+#define NVM_VERSION             2U

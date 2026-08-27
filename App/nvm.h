@@ -13,6 +13,7 @@ typedef struct {
     int32_t deadzone;
     int32_t kp;
     int32_t vmax;
+    int32_t cruise_err;
     uint32_t crc32;
 } nvm_blob_t;
 

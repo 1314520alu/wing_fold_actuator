@@ -6,12 +6,10 @@ RS485 Modbus RTU，不是可直接连接 STM32 USART 的 TTL 电平。
 ## 串口与电气连接
 
 - 默认从站地址：`1`
-- 串口：`9600 baud, 8 data bits, no parity, 1 stop bit`（8N1）
+- 串口：固件上电以 9600 写入波特率寄存器 `0x0005=4`，随后使用 **115200 8N1**（掉电记忆）；若改写失败则回退 9600
 - MCU：USART2，PA2/TX、PA3/RX
-- 编码器：RS485 A/B 差分总线
-- USART2 与 A/B 之间必须使用 MAX485、SP3485 等 RS485 收发器
-- 当前 PCB/固件未预留 DE/RE GPIO；应使用带自动收发方向控制的外部
-  RS485 模块。不得把编码器 A/B 直接接到 PA2/PA3。
+- 本机为 TTL 版：MCU TX↔编码器 RX，MCU RX↔编码器 TX，共地
+- RS485 差分版需外接收发器（见手册）
 
 ## 位置读取
 
@@ -45,3 +43,52 @@ count = (int32_t)turns * 1024 + (int32_t)single
 `ENCODER_SMOKE_TEST=1` 时，固件每 200 ms 从 USART2 读取一次，并通过
 USART3（PB10，115200 8N1）打印 `ENC <count>`；默认值为 `0`，因此正常
 固件仍保持 LED 闪烁。
+
+---
+
+## USART3 遥测流（`telem`）
+
+调试 CLI 走 **USART3**（PB10 TX / PB11 RX），115200 8N1。除既有
+`status` / `motor` / `cal` 等命令外，固件提供周期性 CSV 遥测流，供 PC
+端 [`tools/telem_viewer/`](../tools/telem_viewer/README.md) 解析绘图。
+
+### CLI 命令
+
+| 命令 | 响应 | 说明 |
+|------|------|------|
+| `telem on` | `OK telem on\r\n` | 开启遥测流 |
+| `telem off` | `OK telem off\r\n` | 关闭遥测流 |
+| `telem` | `telem=on\r\n` 或 `telem=off\r\n` | 查询当前状态 |
+
+**上电默认：遥测关闭。** 开启后每 **10 ms**（与 `app_tick` / 控制环对齐）
+输出一行；USART3 TX 忙时**丢弃该帧**，不阻塞控制路径。CLI 应答与 `T,...`
+行可交错出现，PC 端应只解析以 `T,` 开头的行。
+
+### 行格式（12 个逗号分隔字段）
+
+```text
+T,ms,pwm,count,tgt,err,spd_cmd,spd_out,hold,settled,last_dir,fault\r\n
+```
+
+| 字段 | 含义 |
+|------|------|
+| `T` | 固定标记 |
+| `ms` | `HAL_GetTick()` 毫秒时间戳 |
+| `pwm` | 捕获脉宽（µs）；无效 / HOLD 路径时为 0 |
+| `count` | 送入 `control_update` 的位置（滤波有效时用滤波值，否则 raw） |
+| `tgt` | 控制目标 count |
+| `err` | `tgt - count`（有符号） |
+| `spd_cmd` | 闭环速度命令（USART 斜坡前） |
+| `spd_out` | 经斜坡后写入舵机总线的速度 |
+| `hold` | 0/1，是否 HOLD |
+| `settled` | 0/1，控制是否判定到位 |
+| `last_dir` | -1 / 0 / +1，最近一次有效运动方向 |
+| `fault` | 0/1，舵机总线故障闩锁 |
+
+示例：
+
+```text
+T,1234,1500,8164,12000,3836,500,480,0,0,1,0\r\n
+```
+
+带宽约 80 字节/行 × 100 Hz ≈ 8 KB/s，115200 波特可接受。

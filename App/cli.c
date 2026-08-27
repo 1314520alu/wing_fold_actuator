@@ -12,6 +12,7 @@
 
 #define CLI_LINE_SIZE        64U
 #define CLI_UART_TIMEOUT_MS  20U
+#define CLI_RX_RING_SIZE     128U
 
 static UART_HandleTypeDef *s_huart;
 static nvm_blob_t s_params;
@@ -23,6 +24,64 @@ static bool s_calibrated;
 static int16_t s_motor_speed;
 static bool s_manual_override;
 static uint32_t s_manual_started_ms;
+
+static volatile uint8_t s_rx_ring[CLI_RX_RING_SIZE];
+static volatile uint16_t s_rx_head;
+static volatile uint16_t s_rx_tail;
+static bool s_telem_on;
+static uint32_t s_telem_last_ms;
+static char s_telem_output[160];
+
+static void write_text(const char *text);
+
+static bool uart_tx_ready(void)
+{
+    return (s_huart != NULL)
+        && (s_huart->gState == HAL_UART_STATE_READY);
+}
+
+static void emit_telem_line(uint32_t now_ms)
+{
+    app_status_t st;
+    uint16_t pwm;
+    int n;
+
+    if (!uart_tx_ready()) {
+        return; /* drop frame */
+    }
+    app_get_status(&st);
+    /* Always report filtered command pulse when known; raw stays in status. */
+    pwm = st.pwm_us;
+    n = snprintf(s_telem_output, sizeof(s_telem_output),
+                 "T,%lu,%u,%ld,%ld,%ld,%d,%d,%d,%d,%d,%d\r\n",
+                 (unsigned long)now_ms,
+                 (unsigned int)pwm,
+                 (long)st.current,
+                 (long)st.target,
+                 (long)(st.target - st.current),
+                 (int)st.speed_cmd,
+                 (int)st.speed_out,
+                 st.hold ? 1 : 0,
+                 st.settled ? 1 : 0,
+                 (int)st.last_dir,
+                 st.servo_fault ? 1 : 0);
+    if ((n > 0) && ((size_t)n < sizeof(s_telem_output))) {
+        (void)HAL_UART_Transmit_IT(s_huart, (uint8_t *)s_telem_output,
+                                   (uint16_t)n);
+    }
+}
+
+void cli_telem_tick(uint32_t now_ms)
+{
+    if (!s_telem_on) {
+        return;
+    }
+    if ((uint32_t)(now_ms - s_telem_last_ms) < 10U) {
+        return;
+    }
+    s_telem_last_ms = now_ms;
+    emit_telem_line(now_ms);
+}
 
 static void write_text(const char *text)
 {
@@ -38,12 +97,12 @@ static void show_calibration(void)
     char output[96];
 
     (void)snprintf(output, sizeof(output),
-                   "a=%ld b=%ld pwm=%u..%u dz=%ld kp=%ld vmax=%ld %s\r\n",
+                   "a=%ld b=%ld pwm=%u..%u dz=%ld kp=%ld vmax=%ld cruise=%ld %s\r\n",
                    (long)s_params.count_a, (long)s_params.count_b,
                    (unsigned int)s_params.pwm_min_us,
                    (unsigned int)s_params.pwm_max_us,
                    (long)s_params.deadzone, (long)s_params.kp,
-                   (long)s_params.vmax,
+                   (long)s_params.vmax, (long)s_params.cruise_err,
                    s_calibrated ? "calibrated" : "NOT SAVED");
     write_text(output);
 }
@@ -90,18 +149,38 @@ static void save_calibration(void)
 static void show_status(void)
 {
     int32_t count;
-    char output[80];
+    char output[128];
+    app_status_t st;
 
+    app_get_status(&st);
     if (encoder_read_count(&count)) {
         (void)snprintf(output, sizeof(output),
-                       "count=%ld motor=%d cal=%s enc_fail=0\r\n",
+                       "count=%ld motor=%d cal=%s enc_fail=0 "
+                       "pwm=%u raw=%lu irq=%lu age=%lums hold=%d "
+                       "tgt=%ld spd=%d/%d fault=%d\r\n",
                        (long)count, (int)s_motor_speed,
-                       s_calibrated ? "yes" : "no");
+                       s_calibrated ? "yes" : "no",
+                       (unsigned int)st.pwm_us,
+                       (unsigned long)st.pwm_raw_us,
+                       (unsigned long)st.pwm_irq,
+                       (unsigned long)st.pwm_age_ms,
+                       st.hold ? 1 : 0, (long)st.target,
+                       (int)st.speed_cmd, (int)st.speed_out,
+                       st.servo_fault ? 1 : 0);
     } else {
         (void)snprintf(output, sizeof(output),
-                       "count=ERR motor=%d cal=%s enc_fail=%u\r\n",
+                       "count=ERR motor=%d cal=%s enc_fail=%u "
+                       "pwm=%u raw=%lu irq=%lu age=%lums hold=%d "
+                       "tgt=%ld spd=%d/%d fault=%d\r\n",
                        (int)s_motor_speed, s_calibrated ? "yes" : "no",
-                       (unsigned int)encoder_fail_streak());
+                       (unsigned int)encoder_fail_streak(),
+                       (unsigned int)st.pwm_us,
+                       (unsigned long)st.pwm_raw_us,
+                       (unsigned long)st.pwm_irq,
+                       (unsigned long)st.pwm_age_ms,
+                       st.hold ? 1 : 0, (long)st.target,
+                       (int)st.speed_cmd, (int)st.speed_out,
+                       st.servo_fault ? 1 : 0);
     }
     write_text(output);
 }
@@ -114,7 +193,7 @@ static void set_motor(const char *argument)
     errno = 0;
     value = strtol(argument, &end, 10);
     if (argument == end) {
-        write_text("ERR motor speed must be -500..500\r\n");
+        write_text("ERR motor speed must be -1000..1000\r\n");
         return;
     }
     while (*end == ' ') {
@@ -124,11 +203,11 @@ static void set_motor(const char *argument)
         || (value < -SERVO_BUS_SPEED_MAX)
         || (value > SERVO_BUS_SPEED_MAX)
         || (value < INT16_MIN) || (value > INT16_MAX)) {
-        write_text("ERR motor speed must be -500..500\r\n");
+        write_text("ERR motor speed must be -1000..1000\r\n");
         return;
     }
 
-    if (servo_bus_set_motor_speed((int16_t)value) != 0) {
+    if (servo_bus_set_motor_speed_immediate((int16_t)value) != 0) {
         write_text("ERR servo bus\r\n");
         return;
     }
@@ -136,6 +215,85 @@ static void set_motor(const char *argument)
     s_manual_override = true;
     s_manual_started_ms = HAL_GetTick();
     write_text("OK motor\r\n");
+}
+
+static void set_param(const char *argument)
+{
+    char name[16];
+    char *end;
+    long value;
+    int n;
+
+    while (*argument == ' ') {
+        ++argument;
+    }
+    if (strcmp(argument, "save") == 0) {
+        if (!nvm_save(&s_params)) {
+            write_text("ERR Flash save failed\r\n");
+            return;
+        }
+        s_calibrated = true;
+        app_reload_params();
+        write_text("OK set saved\r\n");
+        return;
+    }
+
+    n = 0;
+    while ((argument[n] != '\0') && (argument[n] != ' ') && (n < 15)) {
+        name[n] = argument[n];
+        ++n;
+    }
+    name[n] = '\0';
+    argument += n;
+    while (*argument == ' ') {
+        ++argument;
+    }
+    if (*argument == '\0') {
+        write_text("ERR set dz|kp|vmax|cruise <n> | set save\r\n");
+        return;
+    }
+
+    errno = 0;
+    value = strtol(argument, &end, 10);
+    while (*end == ' ') {
+        ++end;
+    }
+    if ((argument == end) || (*end != '\0') || (errno == ERANGE)) {
+        write_text("ERR set value\r\n");
+        return;
+    }
+
+    if (strcmp(name, "dz") == 0) {
+        if ((value < 1) || (value > 5000)) {
+            write_text("ERR dz 1..5000\r\n");
+            return;
+        }
+        s_params.deadzone = (int32_t)value;
+    } else if (strcmp(name, "kp") == 0) {
+        if ((value < 1) || (value > 5000)) {
+            write_text("ERR kp 1..5000\r\n");
+            return;
+        }
+        s_params.kp = (int32_t)value;
+    } else if (strcmp(name, "vmax") == 0) {
+        if ((value < 80) || (value > SERVO_BUS_SPEED_MAX)) {
+            write_text("ERR vmax 80..1000\r\n");
+            return;
+        }
+        s_params.vmax = (int32_t)value;
+    } else if (strcmp(name, "cruise") == 0) {
+        if ((value < 100) || (value > 20000)) {
+            write_text("ERR cruise 100..20000\r\n");
+            return;
+        }
+        s_params.cruise_err = (int32_t)value;
+    } else {
+        write_text("ERR set dz|kp|vmax|cruise <n> | set save\r\n");
+        return;
+    }
+
+    app_reload_params();
+    write_text("OK set (set save to Flash)\r\n");
 }
 
 static void execute_line(char *line)
@@ -156,6 +314,8 @@ static void execute_line(char *line)
         show_status();
     } else if (strncmp(line, "motor ", 6U) == 0) {
         set_motor(line + 6U);
+    } else if (strncmp(line, "set ", 4U) == 0) {
+        set_param(line + 4U);
     } else if (strcmp(line, "hold") == 0) {
         if (servo_bus_motor_stop() == 0) {
             s_motor_speed = 0;
@@ -164,11 +324,47 @@ static void execute_line(char *line)
         } else {
             write_text("ERR servo bus\r\n");
         }
+    } else if (strcmp(line, "telem on") == 0) {
+        s_telem_on = true;
+        s_telem_last_ms = 0U; /* force next tick */
+        write_text("OK telem on\r\n");
+    } else if (strcmp(line, "telem off") == 0) {
+        s_telem_on = false;
+        write_text("OK telem off\r\n");
+    } else if (strcmp(line, "telem") == 0) {
+        write_text(s_telem_on ? "telem=on\r\n" : "telem=off\r\n");
     } else if (strcmp(line, "help") == 0) {
-        write_text("cal a|b|save|show; status; motor <spd>; hold; help\r\n");
+        write_text("\r\ncal a|b|save|show; set dz|kp|vmax|cruise <n>|save; "
+                   "status; motor <spd>; hold; telem on|off; help\r\n");
     } else if (*line != '\0') {
-        write_text("ERR unknown command (try help)\r\n");
+        write_text("\r\nERR unknown command (try help)\r\n");
     }
+}
+
+static bool ring_pop(uint8_t *out)
+{
+    uint16_t tail;
+    uint16_t head;
+
+    tail = s_rx_tail;
+    head = s_rx_head;
+    if (tail == head) {
+        return false;
+    }
+    *out = s_rx_ring[tail];
+    s_rx_tail = (uint16_t)((tail + 1U) % CLI_RX_RING_SIZE);
+    return true;
+}
+
+void cli_uart_rx_irq_byte(uint8_t byte)
+{
+    uint16_t next = (uint16_t)((s_rx_head + 1U) % CLI_RX_RING_SIZE);
+
+    if (next == s_rx_tail) {
+        return; /* drop on overflow */
+    }
+    s_rx_ring[s_rx_head] = byte;
+    s_rx_head = next;
 }
 
 void cli_init(UART_HandleTypeDef *huart)
@@ -178,41 +374,69 @@ void cli_init(UART_HandleTypeDef *huart)
     s_motor_speed = 0;
     s_manual_override = false;
     s_manual_started_ms = 0U;
-    s_calibrated = nvm_load(&s_params);
-    if (!s_calibrated) {
+    s_telem_on = false;
+    s_telem_last_ms = 0U;
+    s_rx_head = 0U;
+    s_rx_tail = 0U;
+    if (nvm_load(&s_params)) {
+        s_calibrated = true;
+        write_text("Fold CLI ready; type help\r\n");
+        write_text("NVM calibration loaded\r\n");
+    } else {
         nvm_defaults(&s_params);
+        /* Factory stroke defaults: PWM closed-loop works without cal a/b/save. */
+        s_calibrated = true;
+        write_text("Fold CLI ready; type help\r\n");
+        write_text("Using default a=0 b=24000 (optional: cal a/b/save)\r\n");
     }
-    s_have_a = s_calibrated;
-    s_have_b = s_calibrated;
-    write_text("Fold CLI ready; type help\r\n");
-    if (!s_calibrated) {
-        write_text("WARN calibration required\r\n");
-    }
+    s_have_a = true;
+    s_have_b = true;
+
+    /* IRQ RX so encoder Modbus blocking cannot drop CLI bytes. */
+    HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART3_IRQn);
+    __HAL_UART_ENABLE_IT(s_huart, UART_IT_RXNE);
 }
 
 void cli_poll(void)
 {
     uint8_t byte;
 
-    if ((s_huart == NULL)
-        || (HAL_UART_Receive(s_huart, &byte, 1U, 0U) != HAL_OK)) {
+    if (s_huart == NULL) {
         return;
     }
 
-    if (byte == '\r') {
-        return;
+    if (__HAL_UART_GET_FLAG(s_huart, UART_FLAG_ORE)
+        || __HAL_UART_GET_FLAG(s_huart, UART_FLAG_NE)
+        || __HAL_UART_GET_FLAG(s_huart, UART_FLAG_FE)
+        || __HAL_UART_GET_FLAG(s_huart, UART_FLAG_PE)) {
+        __HAL_UART_CLEAR_OREFLAG(s_huart);
+        s_huart->ErrorCode = HAL_UART_ERROR_NONE;
     }
-    if (byte == '\n') {
-        s_line[s_line_length] = '\0';
-        execute_line(s_line);
-        s_line_length = 0U;
-        return;
-    }
-    if (s_line_length + 1U < sizeof(s_line)) {
-        s_line[s_line_length++] = (char)byte;
-    } else {
-        s_line_length = 0U;
-        write_text("ERR line too long\r\n");
+
+    while (ring_pop(&byte)) {
+        if ((byte >= 0x20U) && (byte <= 0x7EU)) {
+            (void)HAL_UART_Transmit(s_huart, &byte, 1U, 5U);
+        }
+
+        if ((byte == '\r') || (byte == '\n')) {
+            if (s_line_length == 0U) {
+                continue;
+            }
+            s_line[s_line_length] = '\0';
+            execute_line(s_line);
+            s_line_length = 0U;
+            continue;
+        }
+        if ((byte < 0x20U) || (byte > 0x7EU)) {
+            continue;
+        }
+        if (s_line_length + 1U < sizeof(s_line)) {
+            s_line[s_line_length++] = (char)byte;
+        } else {
+            s_line_length = 0U;
+            write_text("\r\nERR line too long\r\n");
+        }
     }
 }
 
@@ -228,9 +452,20 @@ bool cli_is_calibrated(void)
 
 bool cli_manual_override_active(uint32_t now_ms)
 {
+#if CLI_MANUAL_TIMEOUT_MS != 0U
     if (s_manual_override
         && ((uint32_t)(now_ms - s_manual_started_ms) >= CLI_MANUAL_TIMEOUT_MS)) {
         s_manual_override = false;
+        s_motor_speed = 0;
+        (void)servo_bus_motor_stop();
     }
+#else
+    (void)now_ms;
+#endif
     return s_manual_override;
+}
+
+int16_t cli_manual_speed(void)
+{
+    return s_motor_speed;
 }

@@ -24,6 +24,11 @@
 #define PWM_IN_SMOKE_TEST 0
 #endif
 
+/* Set to 1: USART3 (B10/B11) hello + echo only. Use to verify CH340 wiring. */
+#ifndef USART3_SMOKE_TEST
+#define USART3_SMOKE_TEST 0
+#endif
+
 TIM_HandleTypeDef htim2;
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
@@ -61,14 +66,38 @@ int main(void)
   /* TIM2 CH1 on PA0: connect flight-controller or servo tester PWM. */
   pwm_in_init(&htim2);
 #endif
-#if !SERVO_BUS_SMOKE_TEST && !ENCODER_SMOKE_TEST && !PWM_IN_SMOKE_TEST
+#if !SERVO_BUS_SMOKE_TEST && !ENCODER_SMOKE_TEST && !PWM_IN_SMOKE_TEST && !USART3_SMOKE_TEST
   app_init();
 #endif
 
+#if !USART3_SMOKE_TEST && !PWM_IN_SMOKE_TEST && !ENCODER_SMOKE_TEST && !SERVO_BUS_SMOKE_TEST
   uint32_t last_app_tick_ms = HAL_GetTick();
+#endif
   while (1)
   {
-#if PWM_IN_SMOKE_TEST
+#if USART3_SMOKE_TEST
+    /* Continuous TX on PB10; echo RX from PB11. LED toggles each hello. */
+    {
+      static uint32_t usart3_hello_n = 0U;
+      char line[48];
+      int length;
+      uint8_t byte;
+
+      while (HAL_UART_Receive(&huart3, &byte, 1U, 0U) == HAL_OK) {
+        (void)HAL_UART_Transmit(&huart3, &byte, 1U, 20U);
+      }
+
+      length = snprintf(line, sizeof(line),
+                        "USART3 OK n=%lu PB10=TX PB11=RX\r\n",
+                        (unsigned long)usart3_hello_n++);
+      if ((length > 0) && ((size_t)length < sizeof(line))) {
+        (void)HAL_UART_Transmit(&huart3, (uint8_t *)line, (uint16_t)length,
+                                100U);
+      }
+      HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+      HAL_Delay(500);
+    }
+#elif PWM_IN_SMOKE_TEST
     uint16_t pulse_us;
     char line[32];
     int length;
@@ -99,19 +128,22 @@ int main(void)
     }
     HAL_Delay(200);
 #elif SERVO_BUS_SMOKE_TEST
-    servo_bus_set_motor_speed(200);
+    servo_bus_set_motor_speed_immediate(200);
     HAL_Delay(1000);
     servo_bus_motor_stop();
     HAL_Delay(1000);
-    servo_bus_set_motor_speed(-200);
+    servo_bus_set_motor_speed_immediate(-200);
     HAL_Delay(1000);
     servo_bus_motor_stop();
     HAL_Delay(1000);
 #else
-    const uint32_t now_ms = HAL_GetTick();
-    if ((uint32_t)(now_ms - last_app_tick_ms) >= 10U) {
-      last_app_tick_ms = now_ms;
-      app_tick(now_ms);
+    cli_poll();
+    {
+      const uint32_t now_ms = HAL_GetTick();
+      if ((uint32_t)(now_ms - last_app_tick_ms) >= 10U) {
+        last_app_tick_ms = now_ms;
+        app_tick(now_ms);
+      }
     }
 #endif
   }
@@ -148,24 +180,14 @@ void SystemClock_Config(void)
 
 static void MX_TIM2_Init(void)
 {
-  TIM_IC_InitTypeDef sConfigIC = {0};
-
+  /* Free-running 1 µs counter for EXTI pulse timing on PA0 (not IC mode). */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 71;
+  htim2.Init.Prescaler = 71; /* 72 MHz / 72 = 1 MHz */
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-  if (HAL_TIM_IC_Init(&htim2) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  sConfigIC.ICPolarity = TIM_INPUTCHANNELPOLARITY_RISING;
-  sConfigIC.ICSelection = TIM_ICSELECTION_DIRECTTI;
-  sConfigIC.ICPrescaler = TIM_ICPSC_DIV1;
-  sConfigIC.ICFilter = 0;
-  if (HAL_TIM_IC_ConfigChannel(&htim2, &sConfigIC, TIM_CHANNEL_1) != HAL_OK)
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }

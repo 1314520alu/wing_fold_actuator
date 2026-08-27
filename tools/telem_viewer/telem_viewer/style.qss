@@ -1,0 +1,234 @@
+/* Folding-wing telemetry viewer — flat instrument theme */
+
+* {
+    font-family: "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+    font-size: 13px;
+}
+
+QMainWindow, QWidget#CentralRoot {
+    background-color: #12161c;
+    color: #e8edf2;
+}
+
+QStatusBar {
+    background-color: #0c1014;
+    color: #9aa7b5;
+    border-top: 1px solid #243040;
+    padding: 4px 10px;
+}
+
+QLabel {
+    color: #c5d0db;
+    background: transparent;
+}
+
+QLabel#MetricValue {
+    color: #f2f6fa;
+    font-size: 18px;
+    font-weight: 600;
+}
+
+QLabel#MetricCaption {
+    color: #7f8b99;
+    font-size: 11px;
+}
+
+QLabel#SectionHint {
+    color: #8b98a8;
+    font-size: 12px;
+}
+
+QFrame#ToolbarStrip,
+QFrame#MetricStrip,
+QFrame#CalPanel {
+    background-color: #1a212b;
+    border: 1px solid #2a3645;
+    border-radius: 10px;
+}
+
+QFrame#MetricCard {
+    background-color: #141a22;
+    border: 1px solid #2a3645;
+    border-radius: 8px;
+    padding: 6px 10px;
+}
+
+QGroupBox {
+    background-color: transparent;
+    border: none;
+    margin-top: 8px;
+    font-weight: 600;
+    color: #e8edf2;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 4px;
+    padding: 0 4px;
+    color: #e8edf2;
+}
+
+QComboBox {
+    background-color: #0f1419;
+    border: 1px solid #344556;
+    border-radius: 6px;
+    padding: 5px 10px;
+    min-height: 22px;
+    color: #e8edf2;
+    selection-background-color: #1f6feb;
+}
+
+QComboBox:hover {
+    border-color: #4a5d73;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #1a212b;
+    border: 1px solid #344556;
+    color: #e8edf2;
+    selection-background-color: #1f6feb;
+}
+
+QPushButton {
+    background-color: #243040;
+    color: #e8edf2;
+    border: 1px solid #3a4b5e;
+    border-radius: 6px;
+    padding: 6px 12px;
+    min-height: 24px;
+}
+
+QPushButton:hover {
+    background-color: #2d3c4f;
+    border-color: #4f647c;
+}
+
+QPushButton:pressed {
+    background-color: #1b2530;
+}
+
+QPushButton:disabled {
+    color: #667382;
+    background-color: #1a212b;
+    border-color: #2a3645;
+}
+
+QPushButton#PrimaryButton {
+    background-color: #1f6feb;
+    border-color: #1f6feb;
+    color: #ffffff;
+    font-weight: 600;
+}
+
+QPushButton#PrimaryButton:hover {
+    background-color: #388bfd;
+    border-color: #388bfd;
+}
+
+QPushButton#DangerButton {
+    background-color: #3a1f24;
+    border-color: #8b3a44;
+    color: #ffb4b4;
+}
+
+QPushButton#DangerButton:hover {
+    background-color: #4a252c;
+}
+
+QPushButton#AccentButton {
+    background-color: #16332a;
+    border-color: #2f6f55;
+    color: #9ee0c0;
+}
+
+QPushButton#AccentButton:hover {
+    background-color: #1c3f34;
+}
+
+QPushButton#JogButton {
+    min-width: 44px;
+    font-size: 16px;
+    font-weight: 700;
+}
+
+QPushButton#JogButton:checked {
+    background-color: #1f6feb;
+    border-color: #1f6feb;
+    color: #ffffff;
+}
+
+QCheckBox {
+    color: #c5d0db;
+    spacing: 6px;
+}
+
+QCheckBox::indicator {
+    width: 15px;
+    height: 15px;
+    border-radius: 3px;
+    border: 1px solid #3a4b5e;
+    background: #0f1419;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #1f6feb;
+    border-color: #1f6feb;
+}
+
+QTextEdit {
+    background-color: #0f1419;
+    color: #d5dee8;
+    border: 1px solid #2a3645;
+    border-radius: 8px;
+    padding: 8px;
+    selection-background-color: #1f6feb;
+}
+
+QSplitter::handle {
+    background-color: #243040;
+}
+
+QSplitter::handle:horizontal {
+    width: 3px;
+}
+
+QSplitter::handle:vertical {
+    height: 3px;
+}
+
+QMenu {
+    background-color: #1a212b;
+    color: #e8edf2;
+    border: 1px solid #344556;
+}
+
+QMenu::item:selected {
+    background-color: #1f6feb;
+}
+
+QMessageBox {
+    background-color: #1a212b;
+    color: #e8edf2;
+}
+
+QScrollBar:vertical {
+    background: #12161c;
+    width: 10px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: #3a4b5e;
+    border-radius: 4px;
+    min-height: 24px;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}

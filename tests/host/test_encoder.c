@@ -49,6 +49,28 @@ static void reset_fixture(void)
     encoder_init(&uart);
 }
 
+HAL_StatusTypeDef HAL_UART_DeInit(UART_HandleTypeDef *huart)
+{
+    (void)huart;
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef HAL_UART_Init(UART_HandleTypeDef *huart)
+{
+    (void)huart;
+    return HAL_OK;
+}
+
+void HAL_Delay(uint32_t Delay)
+{
+    (void)Delay;
+}
+
+uint32_t HAL_GetTick(void)
+{
+    return 0U;
+}
+
 HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart,
                                     uint8_t *data,
                                     uint16_t size,
@@ -56,7 +78,7 @@ HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart,
 {
     (void)timeout;
     assert(huart == &uart);
-    assert(size == sizeof(transmitted));
+    assert(size <= sizeof(transmitted));
     memcpy(transmitted, data, size);
     return tx_status;
 }
@@ -68,7 +90,7 @@ HAL_StatusTypeDef HAL_UART_Receive(UART_HandleTypeDef *huart,
 {
     (void)timeout;
     assert(huart == &uart);
-    assert(size == sizeof(response));
+    assert(size <= sizeof(response));
     memcpy(data, response, size);
     return rx_status;
 }

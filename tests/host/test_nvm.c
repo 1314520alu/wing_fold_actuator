@@ -82,12 +82,13 @@ static void test_defaults_require_endpoint_calibration(void)
     assert(blob.magic == NVM_MAGIC);
     assert(blob.version == NVM_VERSION);
     assert(blob.count_a == 0);
-    assert(blob.count_b == 10240);
+    assert(blob.count_b == 24000);
     assert(blob.pwm_min_us == 1000U);
     assert(blob.pwm_max_us == 2000U);
-    assert(blob.deadzone == 20);
-    assert(blob.kp == 500);
-    assert(blob.vmax == 800);
+    assert(blob.deadzone == 150);
+    assert(blob.kp == 1500);
+    assert(blob.vmax == 1000);
+    assert(blob.cruise_err == 800);
 }
 
 static void test_erased_or_corrupt_flash_is_rejected(void)

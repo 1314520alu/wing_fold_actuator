@@ -47,12 +47,13 @@ void nvm_defaults(nvm_blob_t *out)
     out->magic = NVM_MAGIC;
     out->version = NVM_VERSION;
     out->count_a = 0;
-    out->count_b = 10240;
+    out->count_b = 24000;
     out->pwm_min_us = 1000U;
     out->pwm_max_us = 2000U;
-    out->deadzone = 20;
-    out->kp = 500;
-    out->vmax = 800;
+    out->deadzone = 150;
+    out->kp = 1500;
+    out->vmax = 1000;
+    out->cruise_err = 800;
     out->crc32 = blob_crc(out);
 }
 

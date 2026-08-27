@@ -7,19 +7,11 @@ void HAL_MspInit(void)
   __HAL_AFIO_REMAP_SWJ_NOJTAG();
 }
 
-void HAL_TIM_IC_MspInit(TIM_HandleTypeDef *htim_ic)
+void HAL_TIM_Base_MspInit(TIM_HandleTypeDef *htim)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  if (htim_ic->Instance == TIM2)
+  if (htim->Instance == TIM2)
   {
     __HAL_RCC_TIM2_CLK_ENABLE();
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-
-    GPIO_InitStruct.Pin = GPIO_PIN_0;
-    GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
-    HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
   }
 }
 
@@ -69,7 +61,7 @@ void HAL_UART_MspInit(UART_HandleTypeDef *huart)
 
     GPIO_InitStruct.Pin = GPIO_PIN_11;
     GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Pull = GPIO_PULLUP;
     HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
   }
 }

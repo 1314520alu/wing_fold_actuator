@@ -21,6 +21,14 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release"
       }
+    },
+    {
+      "name": "Usart3Smoke",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "USART3_SMOKE_TEST": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -31,6 +39,10 @@
     {
       "name": "Release",
       "configurePreset": "Release"
+    },
+    {
+      "name": "Usart3Smoke",
+      "configurePreset": "Usart3Smoke"
     }
   ]
 }

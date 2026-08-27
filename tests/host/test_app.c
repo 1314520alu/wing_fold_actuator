@@ -23,6 +23,7 @@ static bool pwm_valid;
 static uint16_t pwm_us;
 static uint32_t pwm_edge_ms;
 static int16_t motor_speed;
+static int16_t motor_target;
 static int speed_write_result;
 static unsigned int speed_writes;
 static unsigned int stop_writes;
@@ -34,10 +35,19 @@ void servo_bus_init(UART_HandleTypeDef *huart, uint8_t servo_id)
 {
     assert(huart == &huart1);
     assert(servo_id == 1U);
+    motor_target = 0;
+    motor_speed = 0;
 }
 
 int servo_bus_set_motor_speed(int16_t speed)
 {
+    motor_target = speed;
+    return 0;
+}
+
+int servo_bus_set_motor_speed_immediate(int16_t speed)
+{
+    motor_target = speed;
     motor_speed = speed;
     ++speed_writes;
     return speed_write_result;
@@ -45,9 +55,25 @@ int servo_bus_set_motor_speed(int16_t speed)
 
 int servo_bus_motor_stop(void)
 {
+    motor_target = 0;
     motor_speed = 0;
     ++stop_writes;
     return 0;
+}
+
+int servo_bus_ramp_update(void)
+{
+    if (motor_speed == motor_target) {
+        return 0;
+    }
+    motor_speed = motor_target;
+    ++speed_writes;
+    return (speed_write_result == 0) ? 1 : -1;
+}
+
+int16_t servo_bus_get_output_speed(void)
+{
+    return motor_speed;
 }
 
 void encoder_init(UART_HandleTypeDef *huart)
@@ -73,6 +99,12 @@ void pwm_in_init(TIM_HandleTypeDef *htim)
     assert(htim == &htim2);
 }
 
+void pwm_in_set_cmd_range(uint16_t min_us, uint16_t max_us)
+{
+    (void)min_us;
+    (void)max_us;
+}
+
 bool pwm_in_get_pulse_us(uint16_t *out_us)
 {
     if (pwm_valid) {
@@ -86,6 +118,28 @@ uint32_t pwm_in_last_edge_ms(void)
     return pwm_edge_ms;
 }
 
+bool pwm_in_get_fresh_pulse_us(uint32_t now_ms, uint32_t max_age_ms,
+                               uint16_t *out_us)
+{
+    if (!pwm_in_get_pulse_us(out_us)) {
+        return false;
+    }
+    if ((uint32_t)(now_ms - pwm_edge_ms) > max_age_ms) {
+        return false;
+    }
+    return true;
+}
+
+uint32_t pwm_in_irq_count(void)
+{
+    return pwm_valid ? 100U : 0U;
+}
+
+uint32_t pwm_in_last_raw_us(void)
+{
+    return pwm_valid ? (uint32_t)pwm_us : 0U;
+}
+
 void cli_init(UART_HandleTypeDef *huart)
 {
     assert(huart == &huart3);
@@ -93,6 +147,16 @@ void cli_init(UART_HandleTypeDef *huart)
 
 void cli_poll(void)
 {
+}
+
+void cli_telem_tick(uint32_t now_ms)
+{
+    (void)now_ms;
+}
+
+uint32_t HAL_GetTick(void)
+{
+    return 0U;
 }
 
 const nvm_blob_t *cli_get_params(void)
@@ -109,6 +173,11 @@ bool cli_manual_override_active(uint32_t now_ms)
 {
     (void)now_ms;
     return manual_override;
+}
+
+int16_t cli_manual_speed(void)
+{
+    return motor_speed;
 }
 
 void led_status_init(bool calibrated)
@@ -150,6 +219,7 @@ static void reset_fixture(void)
     params.deadzone = 5;
     params.kp = 1000;
     params.vmax = 500;
+    params.cruise_err = 1000;
     manual_override = false;
     calibrated = true;
     encoder_ok = true;
@@ -227,7 +297,7 @@ static void test_stale_pwm_edge_enters_hold(void)
 {
     reset_fixture();
     app_tick(10U);
-    app_tick(161U);
+    app_tick(411U); /* APP_PWM_TIMEOUT_MS is 400 */
     assert(motor_speed == 0);
     assert(hold_led_calls == 1U);
 }
