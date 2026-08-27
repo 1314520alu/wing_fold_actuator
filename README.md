@@ -1,6 +1,7 @@
-# 折叠翼执行器固件
+# 折叠翼执行器固件（非 ArduPilot）
 
-STM32F103C8T6（Blue Pill）机翼折叠丝杆执行器固件。
+STM32F103C8T6（Blue Pill）**机翼折叠丝杆执行器**固件：飞控舵机 PWM → 位置闭环 → HTD-85H 电机模式。  
+本仓库**不是** ArduPilot / 飞控固件；飞控工程见 [TRANSWING](https://github.com/1314520alu/TRANSWING)。
 
 飞控输出标准舵机 PWM（1000–2000 us）→ MCU 映射为目标位置 → BRT38 绝对值编码器闭环 → HTD-85H **电机模式**驱动丝杆。一套丝杆同步双翼；**不向飞控回传位置**。
 
