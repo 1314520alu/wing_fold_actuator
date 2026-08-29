@@ -75,3 +75,12 @@ target_include_directories(test_pwm_in PRIVATE
     fakes
     ../../App
 )
+
+add_executable(test_mavlink_nvf
+    test_mavlink_nvf.c
+    ../../App/mavlink_nvf.c
+)
+
+target_include_directories(test_mavlink_nvf PRIVATE
+    ../../App
+)

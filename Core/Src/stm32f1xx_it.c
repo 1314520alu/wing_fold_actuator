@@ -1,7 +1,21 @@
 #include "main.h"
 #include "stm32f1xx_it.h"
 
+#ifndef FC_MAVLINK
+#define FC_MAVLINK 0
+#endif
+
+#ifndef USB_CDC_DEBUG
+#define USB_CDC_DEBUG 0
+#endif
+
+#if !FC_MAVLINK && !USB_CDC_DEBUG
 #include "cli.h"
+#endif
+
+#if USB_CDC_DEBUG
+extern PCD_HandleTypeDef hpcd_USB_FS;
+#endif
 
 extern TIM_HandleTypeDef htim2;
 extern UART_HandleTypeDef huart3;
@@ -77,10 +91,19 @@ void USART3_IRQHandler(void)
     __HAL_UART_CLEAR_OREFLAG(&huart3);
   }
 
+#if !FC_MAVLINK && !USB_CDC_DEBUG
   if (__HAL_UART_GET_FLAG(&huart3, UART_FLAG_RXNE)) {
     const uint8_t byte = (uint8_t)(huart3.Instance->DR & 0xFFU);
     cli_uart_rx_irq_byte(byte);
   }
+#endif
 
   HAL_UART_IRQHandler(&huart3);
 }
+
+#if USB_CDC_DEBUG
+void USB_LP_CAN1_RX0_IRQHandler(void)
+{
+  HAL_PCD_IRQHandler(&hpcd_USB_FS);
+}
+#endif

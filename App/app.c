@@ -5,11 +5,25 @@
 #include "cli.h"
 #include "control.h"
 #include "encoder.h"
+#if FC_MAVLINK
+#include "fc_link.h"
+#endif
 #include "led_status.h"
 #include "main.h"
 #include "nvm.h"
 #include "pwm_in.h"
 #include "servo_bus.h"
+#if USB_CDC_DEBUG
+#include "usb_device.h"
+#endif
+
+#ifndef FC_MAVLINK
+#define FC_MAVLINK 0
+#endif
+
+#ifndef USB_CDC_DEBUG
+#define USB_CDC_DEBUG 0
+#endif
 
 #define APP_SERVO_TX_FAILURE_LIMIT  3U
 
@@ -93,7 +107,17 @@ void app_init(void)
     servo_bus_init(&huart1, 1U);
     encoder_init(&huart2);
     pwm_in_init(&htim2);
+#if USB_CDC_DEBUG
+    MX_USB_DEVICE_Init();
+#endif
+#if FC_MAVLINK
+    cli_init(NULL); /* NVM; CLI console may be USB */
+    fc_link_init(&huart3);
+#elif USB_CDC_DEBUG
+    cli_init(NULL); /* NVM + USB CDC console */
+#else
     cli_init(&huart3);
+#endif
     led_status_init(cli_is_calibrated());
 
     params = control_params_from_nvm(cli_get_params());
@@ -163,8 +187,13 @@ void app_tick(uint32_t now_ms)
         }
     }
 
+#if FC_MAVLINK
+    fc_link_tick(now_ms);
+#endif
+#if USB_CDC_DEBUG || !FC_MAVLINK
     cli_telem_tick(now_ms);
     cli_poll();
+#endif
 
     if (s_servo_fault) {
         led_status_fault();

@@ -29,6 +29,22 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "USART3_SMOKE_TEST": "ON"
       }
+    },
+    {
+      "name": "FcMavlink",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "FC_MAVLINK": "ON"
+      }
+    },
+    {
+      "name": "UsbDebug",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "USB_CDC_DEBUG": "ON"
+      }
     }
   ],
   "buildPresets": [
@@ -43,6 +59,14 @@
     {
       "name": "Usart3Smoke",
       "configurePreset": "Usart3Smoke"
+    },
+    {
+      "name": "FcMavlink",
+      "configurePreset": "FcMavlink"
+    },
+    {
+      "name": "UsbDebug",
+      "configurePreset": "UsbDebug"
     }
   ]
 }

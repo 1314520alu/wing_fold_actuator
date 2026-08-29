@@ -10,6 +10,16 @@
 #include "encoder.h"
 #include "servo_bus.h"
 
+#ifndef USB_CDC_DEBUG
+#define USB_CDC_DEBUG 0
+#endif
+
+#if USB_CDC_DEBUG
+#include "usbd_cdc_if.h"
+#include "usb_device.h"
+extern USBD_HandleTypeDef hUsbDeviceFS;
+#endif
+
 #define CLI_LINE_SIZE        64U
 #define CLI_UART_TIMEOUT_MS  20U
 #define CLI_RX_RING_SIZE     128U
@@ -34,10 +44,60 @@ static char s_telem_output[160];
 
 static void write_text(const char *text);
 
-static bool uart_tx_ready(void)
+static bool console_tx_ready(void)
 {
+#if USB_CDC_DEBUG
+    USBD_CDC_HandleTypeDef *hcdc =
+        (USBD_CDC_HandleTypeDef *)hUsbDeviceFS.pClassData;
+    return (hcdc != NULL) && (hcdc->TxState == 0U);
+#else
     return (s_huart != NULL)
         && (s_huart->gState == HAL_UART_STATE_READY);
+#endif
+}
+
+static void console_write(const uint8_t *data, uint16_t len)
+{
+#if USB_CDC_DEBUG
+    /* CDC_Transmit_FS does not copy: Buf must stay valid until TxState clears. */
+    static uint8_t s_usb_tx[64];
+    uint16_t off = 0U;
+
+    while (off < len) {
+        uint16_t chunk = (uint16_t)(len - off);
+        uint32_t start;
+        USBD_CDC_HandleTypeDef *hcdc;
+
+        if (chunk > sizeof(s_usb_tx)) {
+            chunk = (uint16_t)sizeof(s_usb_tx);
+        }
+        (void)memcpy(s_usb_tx, data + off, chunk);
+
+        start = HAL_GetTick();
+        while (CDC_Transmit_FS(s_usb_tx, chunk) == USBD_BUSY) {
+            if ((uint32_t)(HAL_GetTick() - start) > 100U) {
+                return;
+            }
+        }
+        /* Wait until USB finished reading s_usb_tx before next chunk / return. */
+        start = HAL_GetTick();
+        for (;;) {
+            hcdc = (USBD_CDC_HandleTypeDef *)hUsbDeviceFS.pClassData;
+            if ((hcdc == NULL) || (hcdc->TxState == 0U)) {
+                break;
+            }
+            if ((uint32_t)(HAL_GetTick() - start) > 100U) {
+                return;
+            }
+        }
+        off = (uint16_t)(off + chunk);
+    }
+#else
+    if (s_huart != NULL) {
+        (void)HAL_UART_Transmit(s_huart, (uint8_t *)data, len,
+                                CLI_UART_TIMEOUT_MS);
+    }
+#endif
 }
 
 static void emit_telem_line(uint32_t now_ms)
@@ -46,7 +106,7 @@ static void emit_telem_line(uint32_t now_ms)
     uint16_t pwm;
     int n;
 
-    if (!uart_tx_ready()) {
+    if (!console_tx_ready()) {
         return; /* drop frame */
     }
     app_get_status(&st);
@@ -66,8 +126,12 @@ static void emit_telem_line(uint32_t now_ms)
                  (int)st.last_dir,
                  st.servo_fault ? 1 : 0);
     if ((n > 0) && ((size_t)n < sizeof(s_telem_output))) {
+#if USB_CDC_DEBUG
+        console_write((const uint8_t *)s_telem_output, (uint16_t)n);
+#else
         (void)HAL_UART_Transmit_IT(s_huart, (uint8_t *)s_telem_output,
                                    (uint16_t)n);
+#endif
     }
 }
 
@@ -85,10 +149,8 @@ void cli_telem_tick(uint32_t now_ms)
 
 static void write_text(const char *text)
 {
-    if ((s_huart != NULL) && (text != NULL)) {
-        (void)HAL_UART_Transmit(s_huart, (uint8_t *)text,
-                                (uint16_t)strlen(text),
-                                CLI_UART_TIMEOUT_MS);
+    if (text != NULL) {
+        console_write((const uint8_t *)text, (uint16_t)strlen(text));
     }
 }
 
@@ -152,6 +214,8 @@ static void show_status(void)
     char output[128];
     app_status_t st;
 
+    /* Ensure reply starts on a new line (some hosts concatenate echo + reply). */
+    write_text("\r\n");
     app_get_status(&st);
     if (encoder_read_count(&count)) {
         (void)snprintf(output, sizeof(output),
@@ -380,17 +444,30 @@ void cli_init(UART_HandleTypeDef *huart)
     s_rx_tail = 0U;
     if (nvm_load(&s_params)) {
         s_calibrated = true;
+#if USB_CDC_DEBUG
+        write_text("Fold CLI ready (USB CDC); type help\r\n");
+#else
         write_text("Fold CLI ready; type help\r\n");
+#endif
         write_text("NVM calibration loaded\r\n");
     } else {
         nvm_defaults(&s_params);
         /* Factory stroke defaults: PWM closed-loop works without cal a/b/save. */
         s_calibrated = true;
+#if USB_CDC_DEBUG
+        write_text("Fold CLI ready (USB CDC); type help\r\n");
+#else
         write_text("Fold CLI ready; type help\r\n");
+#endif
         write_text("Using default a=0 b=24000 (optional: cal a/b/save)\r\n");
     }
     s_have_a = true;
     s_have_b = true;
+
+    /* huart NULL: NVM/params only; console may be USB CDC. */
+    if (s_huart == NULL) {
+        return;
+    }
 
     /* IRQ RX so encoder Modbus blocking cannot drop CLI bytes. */
     HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
@@ -402,6 +479,36 @@ void cli_poll(void)
 {
     uint8_t byte;
 
+#if USB_CDC_DEBUG
+    while (CDC_GetRxBufferBytesAvailable_FS() > 0U) {
+        if (CDC_ReadRxBuffer_FS(&byte, 1U) != USB_CDC_RX_BUFFER_OK) {
+            break;
+        }
+        if ((byte >= 0x20U) && (byte <= 0x7EU)) {
+            console_write(&byte, 1U);
+        }
+        if ((byte == '\r') || (byte == '\n')) {
+            if (s_line_length == 0U) {
+                continue;
+            }
+            s_line[s_line_length] = '\0';
+            write_text("\r\n");
+            execute_line(s_line);
+            s_line_length = 0U;
+            continue;
+        }
+        if ((byte < 0x20U) || (byte > 0x7EU)) {
+            continue;
+        }
+        if (s_line_length + 1U < sizeof(s_line)) {
+            s_line[s_line_length++] = (char)byte;
+        } else {
+            s_line_length = 0U;
+            write_text("\r\nERR line too long\r\n");
+        }
+    }
+    return;
+#else
     if (s_huart == NULL) {
         return;
     }
@@ -438,6 +545,7 @@ void cli_poll(void)
             write_text("\r\nERR line too long\r\n");
         }
     }
+#endif
 }
 
 const nvm_blob_t *cli_get_params(void)

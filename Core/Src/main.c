@@ -176,6 +176,16 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+
+  {
+    RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB;
+    PeriphClkInit.UsbClockSelection = RCC_USBCLKSOURCE_PLL_DIV1_5; /* 72/1.5 = 48 MHz */
+    if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+    {
+      Error_Handler();
+    }
+  }
 }
 
 static void MX_TIM2_Init(void)

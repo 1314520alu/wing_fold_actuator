@@ -28,7 +28,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/cli.c
     App/control.c
     App/encoder.c
+    App/fc_link.c
     App/led_status.c
+    App/mavlink_nvf.c
     App/nvm.c
     App/pwm_in.c
     App/servo_bus.c
@@ -37,6 +39,32 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
 option(USART3_SMOKE_TEST "Build USART3 hello/echo wiring check" OFF)
 if(USART3_SMOKE_TEST)
     target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE USART3_SMOKE_TEST=1)
+endif()
+
+option(FC_MAVLINK "USART3 = FC MAVLink NAMED_VALUE_FLOAT (no ASCII CLI on USART3)" OFF)
+if(FC_MAVLINK)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE FC_MAVLINK=1)
+endif()
+
+option(USB_CDC_DEBUG "CLI/telem on USB CDC (PA11/PA12)" OFF)
+if(USB_CDC_DEBUG)
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE USB_CDC_DEBUG=1)
+    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
+        ${CMAKE_SOURCE_DIR}/USB_DEVICE/App
+        ${CMAKE_SOURCE_DIR}/USB_DEVICE/Target
+        ${CMAKE_SOURCE_DIR}/Middlewares/ST/STM32_USB_Device_Library/Core/Inc
+        ${CMAKE_SOURCE_DIR}/Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Inc
+    )
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE
+        USB_DEVICE/App/usb_device.c
+        USB_DEVICE/App/usbd_desc.c
+        USB_DEVICE/App/usbd_cdc_if.c
+        USB_DEVICE/Target/usbd_conf.c
+        Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_core.c
+        Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ctlreq.c
+        Middlewares/ST/STM32_USB_Device_Library/Core/Src/usbd_ioreq.c
+        Middlewares/ST/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c
+    )
 endif()
 
 target_link_libraries(${CMAKE_PROJECT_NAME}

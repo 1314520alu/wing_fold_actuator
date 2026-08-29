@@ -7,6 +7,13 @@ STM32F103C8T6（Blue Pill）**机翼折叠丝杆执行器**固件：飞控舵机
 
 主循环约 **10 ms**。配套 PC 工具：[`tools/telem_viewer`](tools/telem_viewer/README.md)（中文界面，标定 / 手动点动 / 遥测曲线）。
 
+可选构建：
+
+- **`UsbDebug`**：CLI / `telem` 走 **USB CDC**（板载 USB）
+- **`FcMavlink`**：USART3 向飞控发 MAVLink（可与 USB 调试组合，后续）
+
+见 [`docs/PROTOCOL_NOTES.md`](docs/PROTOCOL_NOTES.md)。
+
 ---
 
 ## 1. 系统概览
@@ -15,15 +22,19 @@ STM32F103C8T6（Blue Pill）**机翼折叠丝杆执行器**固件：飞控舵机
 飞控 PWM --PA0---> 脉宽捕获 ---> 目标 tgt
 BRT38 ----USART2---> 位置 count ---> 闭环 control ---> 速度指令
 HTD-85H --USART1---> 电机模式执行
-调试 PC --USART3---> CLI / 遥测 CSV / 查看器
+调试 PC --USB CDC--> CLI / 遥测（UsbDebug 固件）
+调试 PC --USART3---> CLI / 遥测（默认固件）
+飞控    --USART3---> MAVLink（FcMavlink 固件）
 ```
 
 | 角色 | 接口 | 说明 |
 |------|------|------|
-| 飞控 | PA0 PWM | 只输入脉宽，无位置回传 |
+| 飞控指令 | PA0 PWM | 脉宽 → 目标位置 |
+| 调试（推荐） | USB CDC（`UsbDebug`） | Windows 虚拟串口；`telem_viewer` 选该 COM |
+| 调试（旧） | USART3 | 默认固件 CLI + `telem` |
+| 飞控回传 | USART3（`FcMavlink`） | `fold_pct` 等命名浮点 |
 | 编码器 | USART2 | 合成 `count` |
 | 舵机 | USART1 | Lobot 电机模式 ±1000 |
-| 调试 | USART3 | CLI + `telem` 流 |
 
 ---
 
