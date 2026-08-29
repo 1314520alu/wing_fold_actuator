@@ -48,7 +48,18 @@ USART3（PB10，115200 8N1）打印 `ENC <count>`；默认值为 `0`，因此正
 
 ## USART3 遥测流（`telem`）
 
-调试 CLI 走 **USART3**（PB10 TX / PB11 RX），115200 8N1。除既有
+默认固件：调试 CLI 走 **USART3**（PB10 TX / PB11 RX），115200 8N1。
+
+**`UsbDebug` 固件**：同一套 CLI / `telem` 改走 **USB CDC**（板载 USB，Windows 出现新 COM）。USART3 空闲，留给后续飞控 MAVLink。
+
+```powershell
+cmake --preset UsbDebug
+cmake --build --preset UsbDebug
+# 烧录 build/UsbDebug/wing_fold_actuator.hex
+# 插 USB，设备管理器找 ST Virtual COM；telem_viewer / 串口助手连该 COM
+```
+
+除既有
 `status` / `motor` / `cal` 等命令外，固件提供周期性 CSV 遥测流，供 PC
 端 [`tools/telem_viewer/`](../tools/telem_viewer/README.md) 解析绘图。
 
@@ -92,3 +103,43 @@ T,1234,1500,8164,12000,3836,500,480,0,0,1,0\r\n
 ```
 
 带宽约 80 字节/行 × 100 Hz ≈ 8 KB/s，115200 波特可接受。
+
+---
+
+## USART3 → 飞控 MAVLink（`FC_MAVLINK`）
+
+编译选项 `-DFC_MAVLINK=ON` 时：**USART3 专用于飞控**，不再跑 ASCII CLI / `telem`。
+PA0 PWM 仍为折叠指令输入。调试 CLI 待 USB CDC（后续）。
+
+### 构建
+
+```powershell
+cmake --preset <your-preset> -DFC_MAVLINK=ON
+cmake --build --preset <your-preset>
+```
+
+或在已有 build 目录：`cmake -DFC_MAVLINK=ON ..` 后重新编译。
+
+### 报文
+
+MAVLink v1 **`NAMED_VALUE_FLOAT` (251)**，约 10 Hz 轮询发送（每次一帧）：
+
+| name | 含义 |
+|------|------|
+| `fold_pct` | 行程百分比 0–100（相对 NVM `count_a`/`count_b`） |
+| `fold_cnt` | 编码器 count |
+| `fold_flt` | 舵机故障闩锁 0/1 |
+| `fold_pwm` | 捕获 PWM µs |
+| `fold_hld` | HOLD 0/1 |
+
+- sysid=1，compid=191  
+- 115200 8N1，PB10 TX / PB11 RX  
+
+### PC 验证
+
+```powershell
+pip install pymavlink
+python tools/fc_mavlink_sniff.py COM5
+```
+
+接飞控时：飞控 `SERIALn` 接 USART3，Lua 可用 `mavlink` 收 `NAMED_VALUE_FLOAT` 或后续再桥接。
