@@ -33,8 +33,22 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     App/mavlink_nvf.c
     App/nvm.c
     App/pwm_in.c
-    App/servo_bus.c
 )
+
+set(MOTOR_BACKEND "HTD" CACHE STRING "Motor driver backend: HTD or AK70")
+set_property(CACHE MOTOR_BACKEND PROPERTY STRINGS HTD AK70)
+string(TOUPPER "${MOTOR_BACKEND}" MOTOR_BACKEND_UPPER)
+if(MOTOR_BACKEND_UPPER STREQUAL "AK70")
+    set(MOTOR_BACKEND_TAG "ak70")
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE App/servo_bus_ak70.c)
+else()
+    set(MOTOR_BACKEND_TAG "htd")
+    target_sources(${CMAKE_PROJECT_NAME} PRIVATE App/servo_bus_htd.c)
+endif()
+target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
+    MOTOR_BACKEND_ID=\"${MOTOR_BACKEND_TAG}\"
+)
+set(HEX_BASENAME "${CMAKE_PROJECT_NAME}-${MOTOR_BACKEND_TAG}")
 
 option(USART3_SMOKE_TEST "Build USART3 hello/echo wiring check" OFF)
 if(USART3_SMOKE_TEST)
@@ -74,11 +88,11 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
     COMMAND ${CMAKE_OBJCOPY} -O ihex
             $<TARGET_FILE_NAME:${CMAKE_PROJECT_NAME}>
-            ${CMAKE_PROJECT_NAME}.hex
+            ${HEX_BASENAME}.hex
     COMMAND ${CMAKE_COMMAND}
             -DHEX_DIR=${CMAKE_CURRENT_BINARY_DIR}
-            -DHEX_BASE=${CMAKE_PROJECT_NAME}
+            -DHEX_BASE=${HEX_BASENAME}
             -P ${CMAKE_SOURCE_DIR}/cmake/stamp_hex.cmake
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-    COMMENT "Generating ${CMAKE_PROJECT_NAME}.hex (+ timestamped copy)"
+    COMMENT "Generating ${HEX_BASENAME}.hex (+ timestamped copy)"
 )

@@ -1,6 +1,6 @@
 # 折叠翼执行器固件（非 ArduPilot）
 
-STM32F103C8T6（Blue Pill）**机翼折叠丝杆执行器**固件：飞控舵机 PWM → 位置闭环 → HTD-85H 电机模式。  
+STM32F103CBT6（128 KiB Flash，LQFP48）**机翼折叠丝杆执行器**固件：飞控舵机 PWM → 位置闭环 → HTD-85H 电机模式。  
 本仓库**不是** ArduPilot / 飞控固件；飞控工程见 [TRANSWING](https://github.com/1314520alu/TRANSWING)。
 
 飞控输出标准舵机 PWM（1000–2000 us）→ MCU 映射为目标位置 → BRT38 绝对值编码器闭环 → HTD-85H **电机模式**驱动丝杆。一套丝杆同步双翼；**不向飞控回传位置**。
@@ -43,7 +43,8 @@ HTD-85H --USART1---> 电机模式执行
 | 功能 | 引脚 | 说明 |
 |------|------|------|
 | 飞控 PWM | **PA0** | EXTI 测脉宽；下拉；与飞控 **共地** |
-| HTD-85H 总线 | USART1 **PA9** TX / **PA10** RX | 115200 8N1；半双工缓冲接单线 |
+| HTD-85H 总线 | USART1 **PA9** TX / **PA10** RX | 115200 8N1；Lobot 电机模式 |
+| AK70-10 总线 | USART1 **PA9** TX / **PA10** RX | 115200 8N1；CubeMars 速度环（`MOTOR_BACKEND=AK70` 固件） |
 | BRT38 编码器 | USART2 **PA2** TX / **PA3** RX | 上电协商 **115200**（出厂 9600 会改写）；TTL 交叉 |
 | 调试 CLI | USART3 **PB10** TX / **PB11** RX | 115200 8N1；接 CH340（关 DTR/RTS） |
 | 状态 LED | **PC13** | 板载灯（低电平亮） |
@@ -184,7 +185,7 @@ cal save
 cal show
 ```
 
-`cal a` / `cal b` 采**当时编码器读数**，不能手填。Flash 页 `0x0800FC00`（1 KiB）。有有效 NVM 用 Flash；否则默认 `a=0` / `b=24000`。
+`cal a` / `cal b` 采**当时编码器读数**，不能手填。Flash 页 `0x0801FC00`（1 KiB，128 KiB 器件末页）。有有效 NVM 用 Flash；否则默认 `a=0` / `b=24000`。
 
 ### 6.3 遥测
 
@@ -242,17 +243,24 @@ python -m telem_viewer
 依赖：`cmake`、Ninja、`arm-none-eabi-gcc`。
 
 ```powershell
-cmake --preset Debug
+cmake --preset Debug          # HTD 后端（默认）
 cmake --build --preset Debug
+
+cmake --preset UsbDebug       # USB 调试 + HTD
+cmake --build --preset UsbDebug
+
+cmake --preset UsbDebug-Ak70  # USB 调试 + AK70
+cmake --build --preset UsbDebug-Ak70
 ```
 
-产物：
+产物（hex 名含后端，避免烧错电机）：
 
-- `build/Debug/wing_fold_actuator.hex` — 最新  
-- `build/Debug/wing_fold_actuator_YYYYMMDD_HHMMSS.hex` — 时间戳备份  
+- `build/<预设>/wing_fold_actuator-htd.hex` — HTD-85H  
+- `build/<预设>/wing_fold_actuator-ak70.hex` — AK70  
+- 同目录带 `YYYYMMDD_HHMMSS` 时间戳备份  
 
 ```powershell
-STM32_Programmer_CLI -c port=SWD -w build/Debug/wing_fold_actuator.hex -v -rst
+STM32_Programmer_CLI -c port=SWD -w build/Debug/wing_fold_actuator-htd.hex -v -rst
 ```
 
 OpenOCD：

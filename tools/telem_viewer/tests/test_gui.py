@@ -51,6 +51,8 @@ def test_main_window_has_required_controls_and_plots(qapp):
     window = MainWindow()
 
     assert window.port_combo is not None
+    assert window.motor_profile_combo is not None
+    assert window.motor_profile_combo.count() == 2
     assert window.connect_button.text() == "连接"
     assert window.telem_button.text() == "开启遥测"
     assert window.record_button.text() == "录制"
@@ -111,6 +113,27 @@ def test_manual_mode_sends_motor_override_and_hold(qapp):
     assert window._jog_speed == 0
     assert sent[-1] == "hold"
     assert window.jog_plus_button.isEnabled() is False
+    window.close()
+
+
+def test_main_window_auto_selects_profile_from_status_backend(qapp):
+    from telem_viewer.main_window import MainWindow
+
+    window = MainWindow()
+    window.motor_profile_combo.setCurrentIndex(0)
+    window._on_line(
+        "count=100 motor=0 cal=yes enc_fail=0 "
+        "pwm=1500 raw=1500 irq=0 age=0ms hold=0 "
+        "tgt=0 spd=0/0 fault=0 backend=ak70"
+    )
+    assert window._board_backend == "ak70"
+    assert window._profile_key() == "ak70"
+    assert window.backend_mismatch_label.isVisible() is False
+
+    window._select_profile("htd")
+    assert window._profile_key() == "htd"
+    assert "ak70" in window.backend_mismatch_label.text()
+    assert "htd" in window.backend_mismatch_label.text()
     window.close()
 
 

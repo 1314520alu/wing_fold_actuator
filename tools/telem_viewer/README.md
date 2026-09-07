@@ -34,8 +34,13 @@ python -m pip install -r requirements.txt
 python -m telem_viewer
 ```
 
-Select the actuator's COM port and click **连接**. The expected link is
-USART3 at 115200 baud, 8 data bits, no parity, and 1 stop bit.
+Select the actuator's COM port (USB CDC virtual COM when using **UsbDebug**)
+and click **连接**. The expected link is 115200 baud, 8 data bits, no parity,
+and 1 stop bit.
+
+Use the **舵机型号** selector to match HTD-85H or AK70. After connect, the
+viewer reads `backend=` from `status` (or the boot line) and auto-selects the
+matching profile. A warning appears if the UI selection differs from the board.
 
 ## Controls
 

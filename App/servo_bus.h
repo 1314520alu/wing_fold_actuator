@@ -4,7 +4,7 @@
 
 #include "main.h"
 
-/* HTD-85H motor mode: manual says speed -1000..1000. */
+/* HTD-85H motor mode (Lobot): speed -1000..1000. See servo_bus_htd.c. */
 #define SERVO_BUS_SPEED_MAX 1000
 
 void servo_bus_init(UART_HandleTypeDef *huart, uint8_t servo_id);

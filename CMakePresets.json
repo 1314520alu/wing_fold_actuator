@@ -43,7 +43,17 @@
       "inherits": "default",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "USB_CDC_DEBUG": "ON"
+        "USB_CDC_DEBUG": "ON",
+        "MOTOR_BACKEND": "HTD"
+      }
+    },
+    {
+      "name": "UsbDebug-Ak70",
+      "inherits": "default",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "USB_CDC_DEBUG": "ON",
+        "MOTOR_BACKEND": "AK70"
       }
     }
   ],
@@ -67,6 +77,10 @@
     {
       "name": "UsbDebug",
       "configurePreset": "UsbDebug"
+    },
+    {
+      "name": "UsbDebug-Ak70",
+      "configurePreset": "UsbDebug-Ak70"
     }
   ]
 }

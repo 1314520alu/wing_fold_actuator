@@ -8,6 +8,7 @@
 
 #include "app.h"
 #include "encoder.h"
+#include "motor_backend.h"
 #include "servo_bus.h"
 
 #ifndef USB_CDC_DEBUG
@@ -221,7 +222,7 @@ static void show_status(void)
         (void)snprintf(output, sizeof(output),
                        "count=%ld motor=%d cal=%s enc_fail=0 "
                        "pwm=%u raw=%lu irq=%lu age=%lums hold=%d "
-                       "tgt=%ld spd=%d/%d fault=%d\r\n",
+                       "tgt=%ld spd=%d/%d fault=%d backend=%s\r\n",
                        (long)count, (int)s_motor_speed,
                        s_calibrated ? "yes" : "no",
                        (unsigned int)st.pwm_us,
@@ -230,12 +231,12 @@ static void show_status(void)
                        (unsigned long)st.pwm_age_ms,
                        st.hold ? 1 : 0, (long)st.target,
                        (int)st.speed_cmd, (int)st.speed_out,
-                       st.servo_fault ? 1 : 0);
+                       st.servo_fault ? 1 : 0, MOTOR_BACKEND_ID);
     } else {
         (void)snprintf(output, sizeof(output),
                        "count=ERR motor=%d cal=%s enc_fail=%u "
                        "pwm=%u raw=%lu irq=%lu age=%lums hold=%d "
-                       "tgt=%ld spd=%d/%d fault=%d\r\n",
+                       "tgt=%ld spd=%d/%d fault=%d backend=%s\r\n",
                        (int)s_motor_speed, s_calibrated ? "yes" : "no",
                        (unsigned int)encoder_fail_streak(),
                        (unsigned int)st.pwm_us,
@@ -244,7 +245,7 @@ static void show_status(void)
                        (unsigned long)st.pwm_age_ms,
                        st.hold ? 1 : 0, (long)st.target,
                        (int)st.speed_cmd, (int)st.speed_out,
-                       st.servo_fault ? 1 : 0);
+                       st.servo_fault ? 1 : 0, MOTOR_BACKEND_ID);
     }
     write_text(output);
 }
@@ -397,9 +398,13 @@ static void execute_line(char *line)
         write_text("OK telem off\r\n");
     } else if (strcmp(line, "telem") == 0) {
         write_text(s_telem_on ? "telem=on\r\n" : "telem=off\r\n");
+    } else if (strcmp(line, "backend") == 0) {
+        char output[32];
+        (void)snprintf(output, sizeof(output), "backend=%s\r\n", MOTOR_BACKEND_ID);
+        write_text(output);
     } else if (strcmp(line, "help") == 0) {
         write_text("\r\ncal a|b|save|show; set dz|kp|vmax|cruise <n>|save; "
-                   "status; motor <spd>; hold; telem on|off; help\r\n");
+                   "status; backend; motor <spd>; hold; telem on|off; help\r\n");
     } else if (*line != '\0') {
         write_text("\r\nERR unknown command (try help)\r\n");
     }
@@ -433,6 +438,8 @@ void cli_uart_rx_irq_byte(uint8_t byte)
 
 void cli_init(UART_HandleTypeDef *huart)
 {
+    char boot_line[48];
+
     s_huart = huart;
     s_line_length = 0U;
     s_motor_speed = 0;
@@ -449,6 +456,9 @@ void cli_init(UART_HandleTypeDef *huart)
 #else
         write_text("Fold CLI ready; type help\r\n");
 #endif
+        (void)snprintf(boot_line, sizeof(boot_line), "boot backend=%s\r\n",
+                       MOTOR_BACKEND_ID);
+        write_text(boot_line);
         write_text("NVM calibration loaded\r\n");
     } else {
         nvm_defaults(&s_params);
@@ -459,6 +469,9 @@ void cli_init(UART_HandleTypeDef *huart)
 #else
         write_text("Fold CLI ready; type help\r\n");
 #endif
+        (void)snprintf(boot_line, sizeof(boot_line), "boot backend=%s\r\n",
+                       MOTOR_BACKEND_ID);
+        write_text(boot_line);
         write_text("Using default a=0 b=24000 (optional: cal a/b/save)\r\n");
     }
     s_have_a = true;

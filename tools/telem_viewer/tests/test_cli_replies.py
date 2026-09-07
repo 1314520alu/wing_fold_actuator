@@ -12,7 +12,7 @@ def test_parse_status_ok_count():
     line = (
         "count=22278 motor=0 cal=yes enc_fail=0 "
         "pwm=1500 raw=1500 irq=10 age=3ms hold=0 "
-        "tgt=12000 spd=500/480 fault=0"
+        "tgt=12000 spd=500/480 fault=0 backend=htd"
     )
     reply = parse_cli_reply(line)
     assert isinstance(reply, StatusReply)
@@ -25,6 +25,18 @@ def test_parse_status_ok_count():
     assert reply.spd_out == 480
     assert reply.fault == 0
     assert reply.pwm == 1500
+    assert reply.backend == "htd"
+
+
+def test_parse_status_without_backend_still_works():
+    line = (
+        "count=100 motor=0 cal=yes enc_fail=0 "
+        "pwm=1500 raw=1500 irq=0 age=0ms hold=0 "
+        "tgt=0 spd=0/0 fault=0"
+    )
+    reply = parse_cli_reply(line)
+    assert isinstance(reply, StatusReply)
+    assert reply.backend is None
 
 
 def test_parse_status_encoder_error():

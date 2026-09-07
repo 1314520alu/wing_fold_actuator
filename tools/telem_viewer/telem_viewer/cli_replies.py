@@ -17,6 +17,7 @@ class StatusReply:
     spd_out: int
     fault: int
     pwm: int | None = None
+    backend: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,7 +61,8 @@ _STATUS_RE = re.compile(
     r"hold=(?P<hold>\d+)\s+"
     r"tgt=(?P<tgt>-?\d+)\s+"
     r"spd=(?P<spd_cmd>-?\d+)/(?P<spd_out>-?\d+)\s+"
-    r"fault=(?P<fault>\d+)\s*$"
+    r"fault=(?P<fault>\d+)"
+    r"(?:\s+backend=(?P<backend>\S+))?\s*$"
 )
 
 _CAL_SHOW_RE = re.compile(
@@ -127,6 +129,7 @@ def parse_cli_reply(
             spd_out=int(match.group("spd_out")),
             fault=int(match.group("fault")),
             pwm=int(match.group("pwm")),
+            backend=match.group("backend"),
         )
 
     match = _CAL_SHOW_RE.match(text)

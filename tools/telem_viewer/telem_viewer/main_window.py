@@ -50,6 +50,14 @@ class MainWindow(QMainWindow):
     PLOT_REFRESH_MS = 50
     ANALYZE_MS = 1000
     MANUAL_SPEED = 500
+    MOTOR_PROFILES: tuple[tuple[str, str], ...] = (
+        ("htd", "HTD-85H"),
+        ("ak70", "AK70"),
+    )
+    PROFILE_BUS_HINT: dict[str, str] = {
+        "htd": "Lobot 电机模式 · USART1",
+        "ak70": "CubeMars 速度环 · USART1",
+    }
 
     def __init__(self):
         super().__init__()
@@ -65,6 +73,7 @@ class MainWindow(QMainWindow):
         self._manual_mode = False
         self._jog_speed = 0
         self._plot_dirty = False
+        self._board_backend: str | None = None
 
         self.worker = SerialWorker(self)
         self.worker.line_received.connect(self._on_line)
@@ -182,6 +191,18 @@ class MainWindow(QMainWindow):
         self.port_combo.setMinimumWidth(140)
         controls.addWidget(self.port_combo)
 
+        motor_caption = QLabel("舵机型号")
+        motor_caption.setObjectName("SectionHint")
+        controls.addWidget(motor_caption)
+        self.motor_profile_combo = QComboBox()
+        for _key, label in self.MOTOR_PROFILES:
+            self.motor_profile_combo.addItem(label)
+        self.motor_profile_combo.setMinimumWidth(110)
+        self.motor_profile_combo.currentIndexChanged.connect(
+            self._on_profile_changed
+        )
+        controls.addWidget(self.motor_profile_combo)
+
         refresh_button = QPushButton("刷新串口")
         refresh_button.clicked.connect(self._refresh_ports)
         controls.addWidget(refresh_button)
@@ -262,6 +283,16 @@ class MainWindow(QMainWindow):
         title = QLabel("标定 / 舵机")
         title.setStyleSheet("font-weight: 600; font-size: 13px; color: #e8edf2;")
         layout.addWidget(title)
+
+        self.bus_hint_label = QLabel(self.PROFILE_BUS_HINT["htd"])
+        self.bus_hint_label.setObjectName("SectionHint")
+        layout.addWidget(self.bus_hint_label)
+
+        self.backend_mismatch_label = QLabel("")
+        self.backend_mismatch_label.setObjectName("SectionHint")
+        self.backend_mismatch_label.setStyleSheet("color: #ffb74d;")
+        self.backend_mismatch_label.setVisible(False)
+        layout.addWidget(self.backend_mismatch_label)
 
         live_row = QHBoxLayout()
         self.status_labels: dict[str, QLabel] = {}
@@ -420,12 +451,68 @@ class MainWindow(QMainWindow):
             self.telem_button.setText("开启遥测")
             self._set_manual_mode_ui(False)
             self._set_connection_controls(False)
+            self._board_backend = None
+            self.backend_mismatch_label.setVisible(False)
             self.statusBar().showMessage("未连接")
             return
         self._set_connection_controls(True)
         self.statusBar().showMessage("已连接")
         self.worker.send("cal show")
         self.worker.send("status")
+
+    def _profile_key(self, index: int | None = None) -> str:
+        idx = self.motor_profile_combo.currentIndex() if index is None else index
+        if idx < 0 or idx >= len(self.MOTOR_PROFILES):
+            return "htd"
+        return self.MOTOR_PROFILES[idx][0]
+
+    def _profile_index(self, key: str) -> int:
+        for index, (profile_key, _label) in enumerate(self.MOTOR_PROFILES):
+            if profile_key == key:
+                return index
+        return -1
+
+    def _select_profile(self, key: str, *, from_board: bool = False) -> None:
+        index = self._profile_index(key)
+        if index < 0:
+            if from_board:
+                self.backend_mismatch_label.setText(
+                    f"⚠ 板子固件={key}（未知型号）"
+                )
+                self.backend_mismatch_label.setVisible(True)
+            return
+        self.motor_profile_combo.blockSignals(True)
+        self.motor_profile_combo.setCurrentIndex(index)
+        self.motor_profile_combo.blockSignals(False)
+        self._update_bus_hint()
+        if from_board:
+            self._board_backend = key
+        self._update_backend_mismatch()
+
+    def _on_profile_changed(self, _index: int) -> None:
+        self._update_bus_hint()
+        self._update_backend_mismatch()
+
+    def _update_bus_hint(self) -> None:
+        key = self._profile_key()
+        self.bus_hint_label.setText(
+            self.PROFILE_BUS_HINT.get(key, "未知舵机总线")
+        )
+
+    def _update_backend_mismatch(self) -> None:
+        selected = self._profile_key()
+        if self._board_backend and self._board_backend != selected:
+            self.backend_mismatch_label.setText(
+                f"⚠ 板子固件={self._board_backend}，界面={selected}"
+            )
+            self.backend_mismatch_label.setVisible(True)
+        else:
+            self.backend_mismatch_label.setVisible(False)
+
+    def _apply_board_backend(self, backend: str | None) -> None:
+        if not backend:
+            return
+        self._select_profile(backend, from_board=True)
 
     def _set_connection_controls(self, connected: bool) -> None:
         self.telem_button.setEnabled(connected)
@@ -533,6 +620,10 @@ class MainWindow(QMainWindow):
     def _on_line(self, line: str) -> None:
         self._log_serial("<<", line)
 
+        stripped = line.strip()
+        if stripped.startswith("boot backend="):
+            self._apply_board_backend(stripped.split("=", 1)[1].strip())
+
         sample = parse_telem_line(line)
         if sample is not None:
             if self.buffer.samples:
@@ -571,6 +662,8 @@ class MainWindow(QMainWindow):
             self.status_labels["fault"].setText(str(reply.fault))
             self.status_labels["hold"].setText(str(reply.hold))
             self.status_labels["cal"].setText(reply.cal)
+            if reply.backend is not None:
+                self._apply_board_backend(reply.backend)
             if reply.count is not None:
                 self.value_labels["count"].setText(str(reply.count))
             if reply.pwm is not None:
