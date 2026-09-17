@@ -3,9 +3,14 @@
 #include <stdbool.h>
 #include <string.h>
 
-#define AK70_FRAME_HEADER           0xAAU
-#define AK70_FRAME_TAIL             0xBBU
-#define AK70_CMD_SET_RPM            73U
+/* AK70-10 / CubeMars V1.32 servo UART: 02 len payload crc_hi crc_lo 03.
+ * Not the AK3.0 AA/BB frames (cmd 73), and not the R-LINK USB wrapper. */
+#define AK70_FRAME_HEADER           0x02U
+#define AK70_FRAME_TAIL             0x03U
+/* This AK70 answers COMM_FW_VERSION (cmd 0). MIT firmware ignores GET_VALUES. */
+#define AK70_CMD_FW_VERSION         0U
+#define AK70_CMD_GET_VALUES         4U
+#define AK70_CMD_SET_RPM            8U
 #define AK70_SET_RPM_PAYLOAD_LEN    5U
 #define AK70_SET_RPM_FRAME_LEN      10U
 
@@ -16,9 +21,17 @@
 #define SERVO_BUS_KEEPALIVE_MS      80U
 #endif
 
-/* Abstract ±1000 maps 1:1 to AK70 ERPM at the servo_bus API boundary. */
-#ifndef AK70_ERPM_PER_UNIT
-#define AK70_ERPM_PER_UNIT          1
+/* Host 100 = 1 rev/s setting. Shaft must run at 2 rev/s so an 18-turn
+ * fold finishes in about 9 s. AK70-10 pole pairs = 21.
+ * 2 rps * 60 * 21 = 2520 ERPM at host speed 100. */
+#ifndef AK70_HOST_SPEED_PER_RPS
+#define AK70_HOST_SPEED_PER_RPS     100
+#endif
+#ifndef AK70_POLE_PAIRS
+#define AK70_POLE_PAIRS             21
+#endif
+#ifndef AK70_SHAFT_RPS_NUM
+#define AK70_SHAFT_RPS_NUM          2
 #endif
 
 static UART_HandleTypeDef *s_huart;
@@ -97,7 +110,9 @@ static int8_t speed_sign(int16_t speed)
 
 static int32_t speed_to_erpm(int16_t speed)
 {
-    return (int32_t)speed * (int32_t)AK70_ERPM_PER_UNIT;
+    return ((int32_t)speed * 60 * (int32_t)AK70_POLE_PAIRS
+            * (int32_t)AK70_SHAFT_RPS_NUM)
+           / (int32_t)AK70_HOST_SPEED_PER_RPS;
 }
 
 static int servo_bus_transmit(const uint8_t *frame, uint16_t len)
@@ -229,4 +244,142 @@ int servo_bus_ramp_update(void)
 int16_t servo_bus_get_output_speed(void)
 {
     return s_speed_out;
+}
+
+static void uart_flush_rx(void)
+{
+    uint8_t dump;
+    uint32_t guard = 0U;
+
+    if ((s_huart == NULL) || (s_huart->Instance == NULL)) {
+        return;
+    }
+    while ((__HAL_UART_GET_FLAG(s_huart, UART_FLAG_RXNE) != RESET)
+           && (guard < 64U)) {
+        dump = (uint8_t)(s_huart->Instance->DR & 0xFFU);
+        (void)dump;
+        ++guard;
+    }
+}
+
+static int16_t be_i16(const uint8_t *p)
+{
+    return (int16_t)(((uint16_t)p[0] << 8) | p[1]);
+}
+
+static int32_t be_i32(const uint8_t *p)
+{
+    return (int32_t)(((uint32_t)p[0] << 24)
+                     | ((uint32_t)p[1] << 16)
+                     | ((uint32_t)p[2] << 8)
+                     | (uint32_t)p[3]);
+}
+
+static int recv_byte(uint8_t *byte, uint32_t deadline_ms)
+{
+    while ((int32_t)(deadline_ms - HAL_GetTick()) > 0) {
+        if (HAL_UART_Receive(s_huart, byte, 1U, 5U) == HAL_OK) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+/* Scan for one valid 02 frame. payload_len includes the command byte. */
+static int recv_frame(uint8_t *payload, uint8_t *payload_len, uint32_t timeout_ms)
+{
+    const uint32_t deadline = HAL_GetTick() + timeout_ms;
+    uint8_t byte = 0U;
+
+    if ((payload == NULL) || (payload_len == NULL)) {
+        return -1;
+    }
+
+    while (recv_byte(&byte, deadline) == 0) {
+        uint8_t len = 0U;
+        uint8_t raw[80];
+        uint16_t crc;
+        uint16_t rx_crc;
+
+        if (byte != AK70_FRAME_HEADER) {
+            continue;
+        }
+        if (recv_byte(&len, deadline) != 0) {
+            return -1;
+        }
+        if ((len < 1U) || (len > 78U)) {
+            continue;
+        }
+        for (uint8_t i = 0U; i < (uint8_t)(len + 3U); ++i) {
+            if (recv_byte(&raw[i], deadline) != 0) {
+                return -1;
+            }
+        }
+        if (raw[len + 2U] != AK70_FRAME_TAIL) {
+            continue;
+        }
+        crc = ak70_crc16(raw, len);
+        rx_crc = (uint16_t)(((uint16_t)raw[len] << 8) | raw[len + 1U]);
+        if (crc != rx_crc) {
+            continue;
+        }
+        (void)memcpy(payload, raw, len);
+        *payload_len = len;
+        return 0;
+    }
+    return -1;
+}
+
+int servo_bus_read_feedback(servo_bus_feedback_t *out)
+{
+    uint8_t payload[1] = { AK70_CMD_FW_VERSION };
+    uint8_t frame[6];
+    uint8_t body[80];
+    uint8_t len = 0U;
+    uint16_t crc;
+
+    if ((s_huart == NULL) || (out == NULL)) {
+        return -1;
+    }
+
+    crc = ak70_crc16(payload, 1U);
+    frame[0] = AK70_FRAME_HEADER;
+    frame[1] = 1U;
+    frame[2] = AK70_CMD_FW_VERSION;
+    frame[3] = (uint8_t)(crc >> 8);
+    frame[4] = (uint8_t)(crc & 0xFFU);
+    frame[5] = AK70_FRAME_TAIL;
+
+    uart_flush_rx();
+    if (servo_bus_transmit(frame, 6U) != 0) {
+        return -1;
+    }
+    if (recv_frame(body, &len, 60U) != 0) {
+        return -1;
+    }
+
+    out->mos_x10 = 0;
+    out->rpm = 0;
+    out->vin_x10 = 0;
+    out->fault = 0U;
+    out->has_values = 0U;
+
+    if (body[0] == AK70_CMD_GET_VALUES) {
+        if (len < 54U) {
+            return -1;
+        }
+        /* After cmd: mos, mtemp, currents, duty, rpm, vin, reserved[24], fault. */
+        out->mos_x10 = be_i16(&body[1]);
+        out->rpm = be_i32(&body[23]);
+        out->vin_x10 = be_i16(&body[27]);
+        out->fault = body[53];
+        out->has_values = 1U;
+        return 0;
+    }
+
+    /* MIT TEST V2 replies to cmd 0 with a short firmware frame and ignores cmd 4. */
+    if (body[0] != AK70_CMD_FW_VERSION) {
+        return -1;
+    }
+    return 0;
 }

@@ -8,7 +8,12 @@
 #define LOBOT_SET_MODE_FRAME_LEN        10U
 #define LOBOT_TX_POST_DELAY_MS          0U
 
-/* Closed-loop slew per ~10 ms tick (0↔1000 ≈ 250 ms). */
+/* Match上位机/AK70 host units: 100 = full Lobot motor-mode (±1000). */
+#ifndef HTD_HOST_SPEED_PER_FULL
+#define HTD_HOST_SPEED_PER_FULL         100
+#endif
+
+/* Closed-loop slew per ~10 ms tick (host 0↔100 ≈ 3 ticks with step 40). */
 #ifndef SERVO_BUS_RAMP_STEP
 #define SERVO_BUS_RAMP_STEP             40
 #endif
@@ -74,10 +79,23 @@ static int servo_bus_transmit(const uint8_t *frame, uint16_t len)
     return 0;
 }
 
-static int transmit_speed(int16_t speed)
+static int16_t host_to_lobot(int16_t host_speed)
+{
+    int32_t lobot = ((int32_t)host_speed * (int32_t)SERVO_BUS_SPEED_MAX)
+                    / (int32_t)HTD_HOST_SPEED_PER_FULL;
+
+    if (lobot > SERVO_BUS_SPEED_MAX) {
+        lobot = SERVO_BUS_SPEED_MAX;
+    } else if (lobot < -SERVO_BUS_SPEED_MAX) {
+        lobot = -SERVO_BUS_SPEED_MAX;
+    }
+    return (int16_t)lobot;
+}
+
+static int transmit_speed(int16_t host_speed)
 {
     uint8_t buf[LOBOT_SET_MODE_FRAME_LEN];
-    const uint16_t speed_u = (uint16_t)speed;
+    const uint16_t speed_u = (uint16_t)host_to_lobot(host_speed);
 
     buf[0] = LOBOT_FRAME_HEADER;
     buf[1] = LOBOT_FRAME_HEADER;
@@ -184,4 +202,10 @@ int servo_bus_ramp_update(void)
 int16_t servo_bus_get_output_speed(void)
 {
     return s_speed_out;
+}
+
+int servo_bus_read_feedback(servo_bus_feedback_t *out)
+{
+    (void)out;
+    return -1;
 }

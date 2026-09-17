@@ -222,7 +222,11 @@ static void uart_common_init(UART_HandleTypeDef *huart, USART_TypeDef *instance,
 
 static void MX_USART1_UART_Init(void)
 {
+#ifdef AK70_UART_BAUD
+  uart_common_init(&huart1, USART1, AK70_UART_BAUD);
+#else
   uart_common_init(&huart1, USART1, 115200);
+#endif
 }
 
 static void MX_USART2_UART_Init(void)

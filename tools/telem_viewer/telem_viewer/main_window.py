@@ -35,8 +35,10 @@ from telem_viewer.cli_replies import (
     CalCaptureReply,
     CalShowReply,
     ErrReply,
+    MotorFeedbackReply,
     OkReply,
     StatusReply,
+    format_motor_feedback,
     parse_cli_reply,
 )
 from telem_viewer.diagnostics import Event, analyze
@@ -49,14 +51,14 @@ from telem_viewer.serial_worker import SerialWorker
 class MainWindow(QMainWindow):
     PLOT_REFRESH_MS = 50
     ANALYZE_MS = 1000
-    MANUAL_SPEED = 500
+    MANUAL_SPEED = 100  # 1 rev/s setting; MCU shaft runs at 2 rev/s
     MOTOR_PROFILES: tuple[tuple[str, str], ...] = (
         ("htd", "HTD-85H"),
         ("ak70", "AK70"),
     )
     PROFILE_BUS_HINT: dict[str, str] = {
         "htd": "Lobot 电机模式 · USART1",
-        "ak70": "CubeMars 速度环 · USART1",
+        "ak70": "CubeMars MIT · USART1 921600",
     }
 
     def __init__(self):
@@ -294,6 +296,10 @@ class MainWindow(QMainWindow):
         self.backend_mismatch_label.setVisible(False)
         layout.addWidget(self.backend_mismatch_label)
 
+        self.motor_feedback_label = QLabel("电机回传: —")
+        self.motor_feedback_label.setObjectName("SectionHint")
+        layout.addWidget(self.motor_feedback_label)
+
         live_row = QHBoxLayout()
         self.status_labels: dict[str, QLabel] = {}
         for field, caption in (
@@ -383,7 +389,7 @@ class MainWindow(QMainWindow):
         )
         manual_row.addWidget(self.jog_plus_button)
 
-        jog_hint = QLabel(f"点动 ±{self.MANUAL_SPEED}（再点停止）")
+        jog_hint = QLabel("点动 1 圈/秒（再点停止）")
         jog_hint.setObjectName("SectionHint")
         manual_row.addWidget(jog_hint)
         manual_row.addStretch()
@@ -652,7 +658,7 @@ class MainWindow(QMainWindow):
 
     def _apply_cli_reply(
         self,
-        reply: StatusReply | CalShowReply | CalCaptureReply | ErrReply | OkReply,
+        reply: StatusReply | CalShowReply | CalCaptureReply | ErrReply | OkReply | MotorFeedbackReply,
     ) -> None:
         if isinstance(reply, StatusReply):
             count_text = "ERR" if reply.count is None else str(reply.count)
@@ -670,6 +676,12 @@ class MainWindow(QMainWindow):
                 self.value_labels["pwm"].setText(str(reply.pwm))
             self.value_labels["spd_cmd"].setText(str(reply.spd_cmd))
             self.value_labels["spd_out"].setText(str(reply.spd_out))
+            return
+
+        if isinstance(reply, MotorFeedbackReply):
+            text, color = format_motor_feedback(reply)
+            self.motor_feedback_label.setText(text)
+            self.motor_feedback_label.setStyleSheet(f"color: {color};")
             return
 
         if isinstance(reply, CalShowReply):

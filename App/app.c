@@ -49,6 +49,11 @@ static control_params_t control_params_from_nvm(const nvm_blob_t *stored)
     params.kp = stored->kp;
     params.vmax = stored->vmax;
     params.cruise_err = stored->cruise_err;
+    /* Host units: 100 ≈ full useful speed (AK70 2 rps / HTD Lobot 1000).
+     * Migrate boards that still have the old Lobot-native vmax=1000. */
+    if (params.vmax == 1000) {
+        params.vmax = 100;
+    }
     params.pwm_timeout_ms = APP_PWM_TIMEOUT_MS;
     return params;
 }
@@ -85,6 +90,18 @@ static void servo_speed_tracked(int16_t speed)
     if (!s_servo_fault) {
         (void)servo_bus_set_motor_speed(speed);
     }
+}
+
+/* Keep CLI/telem alive in FAULT so the host can still see why the LED is flashing. */
+static void service_debug_console(uint32_t now_ms)
+{
+#if FC_MAVLINK
+    fc_link_tick(now_ms);
+#endif
+#if USB_CDC_DEBUG || !FC_MAVLINK
+    cli_telem_tick(now_ms);
+    cli_poll();
+#endif
 }
 
 void app_reload_params(void)
@@ -142,6 +159,7 @@ void app_tick(uint32_t now_ms)
     if (s_servo_fault) {
         led_status_fault();
         led_status_poll();
+        service_debug_console(now_ms);
         return;
     }
 
@@ -156,9 +174,12 @@ void app_tick(uint32_t now_ms)
         if (encoder_read_count(&encoder_count)) {
             s_last_encoder_count = encoder_count;
         } else if (encoder_fail_streak() >= 5U) {
+            s_control.hold = true;
+            s_control.speed_cmd = 0;
             servo_stop_tracked();
             led_status_fault();
             led_status_poll();
+            service_debug_console(now_ms);
             return;
         }
         control_update(&s_control, s_last_encoder_count, now_ms);
@@ -187,13 +208,7 @@ void app_tick(uint32_t now_ms)
         }
     }
 
-#if FC_MAVLINK
-    fc_link_tick(now_ms);
-#endif
-#if USB_CDC_DEBUG || !FC_MAVLINK
-    cli_telem_tick(now_ms);
-    cli_poll();
-#endif
+    service_debug_console(now_ms);
 
     if (s_servo_fault) {
         led_status_fault();

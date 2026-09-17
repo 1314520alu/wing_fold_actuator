@@ -52,7 +52,8 @@ void nvm_defaults(nvm_blob_t *out)
     out->pwm_max_us = 2000U;
     out->deadzone = 150;
     out->kp = 1500;
-    out->vmax = 1000;
+    /* Host units shared with上位机: 100 ≈ full useful speed. */
+    out->vmax = 100;
     out->cruise_err = 800;
     out->crc32 = blob_crc(out);
 }

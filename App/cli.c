@@ -248,6 +248,29 @@ static void show_status(void)
                        st.servo_fault ? 1 : 0, MOTOR_BACKEND_ID);
     }
     write_text(output);
+#ifdef AK70_UART_BAUD
+    {
+        servo_bus_feedback_t fb;
+        char ak[80];
+
+        if (servo_bus_read_feedback(&fb) == 0) {
+            if (fb.has_values == 0U) {
+                (void)snprintf(ak, sizeof(ak), "ak link=ok\r\n");
+            } else {
+                const int vin = (int)fb.vin_x10;
+                const int mos = (int)fb.mos_x10;
+                (void)snprintf(ak, sizeof(ak),
+                               "ak link=ok v=%d.%d rpm=%ld flt=%u mos=%d.%d\r\n",
+                               vin / 10, (vin < 0 ? -vin : vin) % 10,
+                               (long)fb.rpm, (unsigned int)fb.fault,
+                               mos / 10, (mos < 0 ? -mos : mos) % 10);
+            }
+        } else {
+            (void)snprintf(ak, sizeof(ak), "ak link=none\r\n");
+        }
+        write_text(ak);
+    }
+#endif
 }
 
 static void set_motor(const char *argument)

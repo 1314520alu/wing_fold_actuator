@@ -298,7 +298,7 @@ static const char *telem_stub_line(uint32_t ms)
     static char expected[80];
 
     (void)snprintf(expected, sizeof(expected),
-                   "T,%lu,0,3456,0,-3456,0,0,1,1,0,0\r\n",
+                   "T,%lu,1600,3456,0,-3456,0,0,1,1,0,0\r\n",
                    (unsigned long)ms);
     return expected;
 }

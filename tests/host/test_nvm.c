@@ -87,7 +87,7 @@ static void test_defaults_require_endpoint_calibration(void)
     assert(blob.pwm_max_us == 2000U);
     assert(blob.deadzone == 150);
     assert(blob.kp == 1500);
-    assert(blob.vmax == 1000);
+    assert(blob.vmax == 100);
     assert(blob.cruise_err == 800);
 }
 

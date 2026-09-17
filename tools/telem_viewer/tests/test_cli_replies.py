@@ -2,8 +2,10 @@ from telem_viewer.cli_replies import (
     CalCaptureReply,
     CalShowReply,
     ErrReply,
+    MotorFeedbackReply,
     OkReply,
     StatusReply,
+    format_motor_feedback,
     parse_cli_reply,
 )
 
@@ -118,6 +120,34 @@ def test_parse_ok_with_command_echo_glued():
     reply2 = parse_cli_reply("elem offOK telem off")
     assert isinstance(reply2, OkReply)
     assert reply2.message == "telem off"
+
+
+def test_parse_ak_link_ok_without_measurements():
+    reply = parse_cli_reply("ak link=ok")
+    assert isinstance(reply, MotorFeedbackReply)
+    assert reply.link_ok is True
+    assert reply.voltage is None
+    assert format_motor_feedback(reply) == ("电机回传: 已连接", "#9ccc65")
+
+    glued = parse_cli_reply("statusak link=ok")
+    assert isinstance(glued, MotorFeedbackReply)
+    assert glued.link_ok is True
+    assert glued.voltage is None
+
+
+def test_parse_ak_link_none_and_values():
+    none = parse_cli_reply("ak link=none")
+    assert isinstance(none, MotorFeedbackReply)
+    assert none.link_ok is False
+    assert format_motor_feedback(none)[0] == "电机回传: 无应答"
+
+    values = parse_cli_reply("ak link=ok v=24.0 rpm=6300 flt=0 mos=35.2")
+    assert isinstance(values, MotorFeedbackReply)
+    assert values.voltage == 24.0
+    assert values.rpm == 6300
+    assert values.fault == 0
+    assert values.mos == 35.2
+    assert "24.0 V" in format_motor_feedback(values)[0]
 
 
 def test_parse_status_with_command_echo_glued():

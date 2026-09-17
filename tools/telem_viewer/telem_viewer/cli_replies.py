@@ -49,6 +49,15 @@ class OkReply:
     message: str
 
 
+@dataclass(frozen=True)
+class MotorFeedbackReply:
+    link_ok: bool
+    voltage: float | None = None
+    rpm: int | None = None
+    fault: int | None = None
+    mos: float | None = None
+
+
 _STATUS_RE = re.compile(
     r"^count=(?P<count>-?\d+|ERR)\s+"
     r"motor=(?P<motor>-?\d+)\s+"
@@ -80,7 +89,13 @@ _ERR_RE = re.compile(r"^ERR(?:\s+(?P<msg>.+))?\s*$")
 # USB-UART local echo often glues the typed command onto the reply with no newline:
 #   "cal show" + "a=0 b=…" → "cal showa=0 b=…"
 #   "telem off" + "OK telem off" → "telem offOK telem off"
-_REPLY_MARKERS = ("count=", "a=", "OK ", "ERR ", "telem=")
+_AK_RE = re.compile(
+    r"^ak link=(?P<link>ok|none)"
+    r"(?:\s+v=(?P<v>-?\d+(?:\.\d+)?)\s+rpm=(?P<rpm>-?\d+)"
+    r"\s+flt=(?P<flt>\d+)\s+mos=(?P<mos>-?\d+(?:\.\d+)?))?\s*$"
+)
+
+_REPLY_MARKERS = ("count=", "a=", "OK ", "ERR ", "telem=", "ak ")
 
 
 def normalize_cli_line(line: str) -> str:
@@ -110,10 +125,24 @@ def normalize_cli_line(line: str) -> str:
 
 def parse_cli_reply(
     line: str,
-) -> StatusReply | CalShowReply | CalCaptureReply | ErrReply | OkReply | None:
+) -> StatusReply | CalShowReply | CalCaptureReply | ErrReply | OkReply | MotorFeedbackReply | None:
     text = normalize_cli_line(line)
     if not text or text.startswith("T,"):
         return None
+
+    match = _AK_RE.match(text)
+    if match is not None:
+        if match.group("link") != "ok":
+            return MotorFeedbackReply(link_ok=False)
+        if match.group("v") is None:
+            return MotorFeedbackReply(link_ok=True)
+        return MotorFeedbackReply(
+            link_ok=True,
+            voltage=float(match.group("v")),
+            rpm=int(match.group("rpm")),
+            fault=int(match.group("flt")),
+            mos=float(match.group("mos")),
+        )
 
     match = _STATUS_RE.match(text)
     if match is not None:
@@ -162,6 +191,20 @@ def parse_cli_reply(
         return OkReply(message=(match.group("msg") or "").strip() or "ok")
 
     return None
+
+
+def format_motor_feedback(reply: MotorFeedbackReply) -> tuple[str, str]:
+    """Return (label text, stylesheet color) for the motor-feedback line."""
+    if not reply.link_ok:
+        return "电机回传: 无应答", "#ffb74d"
+    if reply.voltage is None or reply.rpm is None or reply.mos is None:
+        return "电机回传: 已连接", "#9ccc65"
+    color = "#ff8a80" if reply.fault else "#9ccc65"
+    text = (
+        f"电机回传: {reply.voltage:.1f} V  {reply.rpm} rpm  "
+        f"故障={reply.fault}  MOS={reply.mos:.1f} °C"
+    )
+    return text, color
 
 
 def reply_as_dict(reply: Any) -> dict[str, Any]:

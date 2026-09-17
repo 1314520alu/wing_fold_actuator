@@ -7,6 +7,7 @@
 #include "main.h"
 #include "../../App/app.h"
 #include "../../App/nvm.h"
+#include "../../App/servo_bus.h"
 
 UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
@@ -30,6 +31,7 @@ static unsigned int stop_writes;
 static unsigned int fault_led_calls;
 static unsigned int hold_led_calls;
 static unsigned int run_led_calls;
+static uint32_t s_now;
 
 void servo_bus_init(UART_HandleTypeDef *huart, uint8_t servo_id)
 {
@@ -74,6 +76,12 @@ int servo_bus_ramp_update(void)
 int16_t servo_bus_get_output_speed(void)
 {
     return motor_speed;
+}
+
+int servo_bus_read_feedback(servo_bus_feedback_t *out)
+{
+    (void)out;
+    return -1;
 }
 
 void encoder_init(UART_HandleTypeDef *huart)
@@ -235,6 +243,9 @@ static void reset_fixture(void)
     fault_led_calls = 0U;
     hold_led_calls = 0U;
     run_led_calls = 0U;
+    /* Advance time so app.c static last_control_ms does not skip control. */
+    s_now += 1000U;
+    pwm_edge_ms = s_now;
     app_init();
     speed_writes = 0U;
     stop_writes = 0U;
@@ -243,7 +254,7 @@ static void reset_fixture(void)
 static void test_auto_writes_closed_loop_speed(void)
 {
     reset_fixture();
-    app_tick(10U);
+    app_tick(s_now);
     assert(speed_writes == 1U);
     assert(motor_speed == 500);
     assert(run_led_calls == 1U);
@@ -253,7 +264,7 @@ static void test_manual_override_pauses_closed_loop_writes(void)
 {
     reset_fixture();
     manual_override = true;
-    app_tick(10U);
+    app_tick(s_now);
     assert(speed_writes == 0U);
 }
 
@@ -261,8 +272,9 @@ static void test_uncalibrated_forces_auto_hold(void)
 {
     reset_fixture();
     calibrated = false;
-    app_tick(10U);
-    assert(speed_writes == 1U);
+    app_tick(s_now);
+    /* Already stopped: set_motor_speed(0) + ramp need not re-TX. */
+    assert(speed_writes == 0U);
     assert(motor_speed == 0);
     assert(hold_led_calls == 1U);
     assert(run_led_calls == 0U);
@@ -274,7 +286,7 @@ static void test_uncalibrated_preserves_manual_override(void)
     calibrated = false;
     manual_override = true;
     motor_speed = 200;
-    app_tick(10U);
+    app_tick(s_now);
     assert(speed_writes == 0U);
     assert(motor_speed == 200);
     assert(hold_led_calls == 1U);
@@ -287,7 +299,7 @@ static void test_encoder_failure_streak_forces_fault_stop(void)
     encoder_ok = false;
     encoder_failures = 5U;
     motor_speed = 200;
-    app_tick(10U);
+    app_tick(s_now);
     assert(stop_writes == 1U);
     assert(motor_speed == 0);
     assert(fault_led_calls == 1U);
@@ -296,8 +308,8 @@ static void test_encoder_failure_streak_forces_fault_stop(void)
 static void test_stale_pwm_edge_enters_hold(void)
 {
     reset_fixture();
-    app_tick(10U);
-    app_tick(411U); /* APP_PWM_TIMEOUT_MS is 400 */
+    app_tick(s_now);
+    app_tick(s_now + 401U); /* APP_PWM_TIMEOUT_MS is 400 */
     assert(motor_speed == 0);
     assert(hold_led_calls == 1U);
 }
@@ -307,16 +319,19 @@ static void test_consecutive_servo_tx_failures_latch_fault_and_stop_writes(void)
     reset_fixture();
     speed_write_result = -1;
 
-    app_tick(10U);
-    app_tick(11U);
+    app_tick(s_now); /* fail 1 */
     assert(fault_led_calls == 0U);
-    app_tick(12U);
+    motor_speed = 0; /* force next ramp TX attempt */
+    app_tick(s_now + 10U); /* fail 2 */
+    assert(fault_led_calls == 0U);
+    motor_speed = 0;
+    app_tick(s_now + 20U); /* fail 3 → latch */
     assert(speed_writes == 3U);
     assert(stop_writes == 1U);
     assert(motor_speed == 0);
     assert(fault_led_calls == 1U);
 
-    app_tick(13U);
+    app_tick(s_now + 30U);
     assert(speed_writes == 3U);
     assert(stop_writes == 1U);
     assert(fault_led_calls == 2U);

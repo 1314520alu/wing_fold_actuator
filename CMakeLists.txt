@@ -41,6 +41,8 @@ string(TOUPPER "${MOTOR_BACKEND}" MOTOR_BACKEND_UPPER)
 if(MOTOR_BACKEND_UPPER STREQUAL "AK70")
     set(MOTOR_BACKEND_TAG "ak70")
     target_sources(${CMAKE_PROJECT_NAME} PRIVATE App/servo_bus_ak70.c)
+    # AK70-10 UART is the CubeMars "1M" setting: 921600, not the HTD 115200 bus.
+    target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE AK70_UART_BAUD=921600)
 else()
     set(MOTOR_BACKEND_TAG "htd")
     target_sources(${CMAKE_PROJECT_NAME} PRIVATE App/servo_bus_htd.c)

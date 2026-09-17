@@ -93,7 +93,7 @@ def test_manual_mode_sends_motor_override_and_hold(qapp):
 
     window._toggle_jog(window.MANUAL_SPEED)
     assert window._jog_speed == window.MANUAL_SPEED
-    assert sent[-1] == "motor 500"
+    assert sent[-1] == "motor 100"
     assert window.jog_plus_button.isChecked() is True
 
     window._toggle_jog(window.MANUAL_SPEED)
@@ -103,10 +103,10 @@ def test_manual_mode_sends_motor_override_and_hold(qapp):
 
     window._toggle_jog(-window.MANUAL_SPEED)
     assert window._jog_speed == -window.MANUAL_SPEED
-    assert sent[-1] == "motor -500"
+    assert sent[-1] == "motor -100"
     window._toggle_jog(window.MANUAL_SPEED)
     assert window._jog_speed == window.MANUAL_SPEED
-    assert sent[-1] == "motor 500"
+    assert sent[-1] == "motor 100"
 
     window.manual_mode_button.setChecked(False)
     assert window._manual_mode is False
