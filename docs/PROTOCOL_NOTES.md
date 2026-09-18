@@ -109,20 +109,21 @@ T,1234,1500,8164,12000,3836,500,480,0,0,1,0\r\n
 ## USART3 → 飞控 MAVLink（`FC_MAVLINK`）
 
 编译选项 `-DFC_MAVLINK=ON` 时：**USART3 专用于飞控**，不再跑 ASCII CLI / `telem`。
-PA0 PWM 仍为折叠指令输入。调试 CLI 待 USB CDC（后续）。
+PA0 PWM 仍为折叠指令输入。预设 `FcMavlink` 同时打开 `USB_CDC_DEBUG`：CLI / `telem` 走 **USB CDC**（PA11/PA12）。
 
 ### 构建
 
 ```powershell
-cmake --preset <your-preset> -DFC_MAVLINK=ON
-cmake --build --preset <your-preset>
+cmake --preset FcMavlink
+cmake --build --preset FcMavlink
+# 烧录 build/FcMavlink/wing_fold_actuator-htd.hex
 ```
 
-或在已有 build 目录：`cmake -DFC_MAVLINK=ON ..` 后重新编译。
+或：`cmake -DFC_MAVLINK=ON -DUSB_CDC_DEBUG=ON ..` 后重新编译。
 
 ### 报文
 
-MAVLink v1 **`NAMED_VALUE_FLOAT` (251)**，约 10 Hz 轮询发送（每次一帧）：
+MAVLink v1 **`NAMED_VALUE_FLOAT` (251)**，每 **40 ms** 发一帧（总帧率 25 Hz），五个名字轮询，**每个字段约 5 Hz**：
 
 | name | 含义 |
 |------|------|
@@ -142,4 +143,10 @@ pip install pymavlink
 python tools/fc_mavlink_sniff.py COM5
 ```
 
-接飞控时：飞控 `SERIALn` 接 USART3，Lua 可用 `mavlink` 收 `NAMED_VALUE_FLOAT` 或后续再桥接。
+接飞控时：飞控 `SERIALn` 接 USART3，Lua 收 `NAMED_VALUE_FLOAT`。
+
+**飞控 / Lua 侧完整对接说明（另一工程开发用）**见 Transwing 知识库：
+
+`TRANSWING/Transwing_折叠执行器_MAVLink回传说明.md`
+
+（含角度换算、`SERIALn` 参数、与 `transwing_dynamic_mix.lua` 开环估角的差异、验收清单。）

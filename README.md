@@ -3,14 +3,16 @@
 STM32F103CBT6（128 KiB Flash，LQFP48）**机翼折叠丝杆执行器**固件：飞控舵机 PWM → 位置闭环 → HTD-85H 电机模式。  
 本仓库**不是** ArduPilot / 飞控固件；飞控工程见 [TRANSWING](https://github.com/1314520alu/TRANSWING)。
 
-飞控输出标准舵机 PWM（1000–2000 us）→ MCU 映射为目标位置 → BRT38 绝对值编码器闭环 → HTD-85H **电机模式**驱动丝杆。一套丝杆同步双翼；**不向飞控回传位置**。
+飞控输出标准舵机 PWM（1000–2000 us）→ MCU 映射为目标位置 → BRT38 绝对值编码器闭环 → HTD-85H **电机模式**驱动丝杆。一套丝杆同步双翼。
+
+**`FcMavlink` 固件**经 USART3 向飞控回传折叠行程（MAVLink `NAMED_VALUE_FLOAT`，五字段各约 5 Hz）。飞控 Lua 对接说明（知识库）：`TRANSWING/Transwing_折叠执行器_MAVLink回传说明.md`。
 
 主循环约 **10 ms**。配套 PC 工具：[`tools/telem_viewer`](tools/telem_viewer/README.md)（中文界面，标定 / 手动点动 / 遥测曲线）。
 
 可选构建：
 
 - **`UsbDebug`**：CLI / `telem` 走 **USB CDC**（板载 USB）
-- **`FcMavlink`**：USART3 向飞控发 MAVLink（可与 USB 调试组合，后续）
+- **`FcMavlink`**：USART3 → 飞控 MAVLink + USB CDC 调试（推荐接飞控时用）
 
 见 [`docs/PROTOCOL_NOTES.md`](docs/PROTOCOL_NOTES.md)。
 
@@ -32,7 +34,7 @@ HTD-85H --USART1---> 电机模式执行
 | 飞控指令 | PA0 PWM | 脉宽 → 目标位置 |
 | 调试（推荐） | USB CDC（`UsbDebug`） | Windows 虚拟串口；`telem_viewer` 选该 COM |
 | 调试（旧） | USART3 | 默认固件 CLI + `telem` |
-| 飞控回传 | USART3（`FcMavlink`） | `fold_pct` 等命名浮点 |
+| 飞控回传 | USART3（`FcMavlink`） | `fold_pct` 等命名浮点（约 5 Hz/字段）→ 见知识库 MAVLink 回传说明 |
 | 编码器 | USART2 | 合成 `count` |
 | 舵机 | USART1 | Lobot 电机模式 ±1000 |
 

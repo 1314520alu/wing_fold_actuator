@@ -35,7 +35,9 @@
       "inherits": "default",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "FC_MAVLINK": "ON"
+        "FC_MAVLINK": "ON",
+        "USB_CDC_DEBUG": "ON",
+        "MOTOR_BACKEND": "HTD"
       }
     },
     {

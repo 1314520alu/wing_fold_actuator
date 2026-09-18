@@ -5,8 +5,9 @@
 #include "mavlink_nvf.h"
 #include "nvm.h"
 
+/* One NAMED_VALUE_FLOAT per tick; 5 names rotate → each field @ 5 Hz. */
 #ifndef FC_LINK_PERIOD_MS
-#define FC_LINK_PERIOD_MS  100U
+#define FC_LINK_PERIOD_MS  40U
 #endif
 
 #ifndef FC_LINK_SYSID
